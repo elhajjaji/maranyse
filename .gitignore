@@ -1,0 +1,30 @@
+# --- Jamais publiés : secrets et données de la VM ---
+# clé SSH, mots de passe, jeton, sauvegardes (vm/build) ; configuration d'installation avec mot de passe (vm/seed)
+vm/build/
+vm/seed/
+*.vhdx
+*.vhd
+*.iso
+*.log
+*.bak
+
+# --- Rapports et captures de tests (on y voit les comptes et les mots de passe) ---
+tests/out/
+tests/rapport*/
+tests/apercu*/
+
+# --- Fichiers de travail des traductions (phrases collectées sur la vraie installation) ---
+vm/i18n/_*
+
+# --- Divers ---
+__pycache__/
+*.pyc
+.claude/
+Thumbs.db
+desktop.ini
+
+# --- Fichiers internes Hyper-V (dont un état mémoire de la VM), captures de débogage, essais jetables ---
+vm/hyperv/
+tests/*.png
+tests/*.jpg
+tests/essai_*.py

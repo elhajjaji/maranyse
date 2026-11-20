@@ -1,0 +1,7 @@
+# Fins de ligne Linux : les scripts tournent dans la VM et dans le conteneur
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.vhdx binary

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=X-GNOME-Metatheme
+Name=MaranYSE
+Comment=Orchis clair, textes du bureau lisibles sur le fond MaranYSE
+Encoding=UTF-8
+
+[X-GNOME-Metatheme]
+GtkTheme=MaranYSE
+IconTheme=MaranYSE

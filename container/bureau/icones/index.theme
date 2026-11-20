@@ -1,0 +1,12 @@
+[Icon Theme]
+Name=MaranYSE
+Comment=Papirus, sans les petits cadenas et flèches sur les icônes du bureau
+Inherits=Papirus,Adwaita,hicolor
+Directories=emblems
+
+[emblems]
+Size=16
+MinSize=8
+MaxSize=512
+Type=Scalable
+Context=Emblems

@@ -1,0 +1,22 @@
+/* MaranYSE : thème Orchis clair + noms des icônes du bureau lisibles sur le fond clair */
+@import url("/usr/share/themes/Orchis-Light/gtk-3.0/gtk.css");
+
+XfdesktopIconView.view,
+XfdesktopIconView.view.label {
+  color: #0f3236;
+  text-shadow: 0 0 3px rgba(255, 255, 255, 0.95), 0 0 6px rgba(255, 255, 255, 0.8);
+  background-color: transparent;
+}
+XfdesktopIconView.view:selected,
+XfdesktopIconView.view.label:selected,
+XfdesktopIconView.view:active,
+XfdesktopIconView.view.label:active {
+  color: #ffffff;
+  text-shadow: none;
+  background-color: rgba(27, 92, 99, 0.85);
+  border-radius: 6px;
+}
+XfdesktopIconView.view.rubberband {
+  background-color: rgba(27, 92, 99, 0.18);
+  border: 1px solid rgba(27, 92, 99, 0.7);
+}

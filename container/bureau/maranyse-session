@@ -1,0 +1,76 @@
+#!/bin/sh
+# MaranYSE — ouverture de la session d'un enfant (lancé par ~/.xsession).
+# - langue choisie par les parents (page Comptes ; /etc/maranyse/langues), français par défaut
+#   (xrdp ne transmet pas LANG aux sessions) ; saisie chinoise, japonaise, arabe, russe, hindi avec fcitx5 ;
+# - bureau « façon Windows » : barre des tâches en bas, menu Démarrer, thème clair, icônes sur le bureau.
+#   Il est posé à la première session puis à chaque nouvelle VERSION ; entre-temps l'enfant peut le personnaliser.
+MOI=$(id -un)
+LG=$(awk -v u="$MOI" '$1 == u { print $2 }' /etc/maranyse/langues 2>/dev/null)
+#           locale  VS Code  Thonny  saisie (fcitx5, Ctrl+Espace)
+case "$LG" in
+    en) L=en_US; VSC=en;    THO=en_US; IM= ;;
+    es) L=es_ES; VSC=es;    THO=es_ES; IM= ;;
+    de) L=de_DE; VSC=de;    THO=de_DE; IM= ;;
+    pt) L=pt_PT; VSC=pt-br; THO=pt_PT; IM= ;;
+    ru) L=ru_RU; VSC=ru;    THO=ru_RU; IM=keyboard-ru ;;
+    ar) L=ar_MA; VSC=en;    THO=ar_AR; IM=keyboard-ara ;;
+    hi) L=hi_IN; VSC=en;    THO=en_US; IM=keyboard-in ;;
+    zh) L=zh_CN; VSC=zh-cn; THO=zh_CN; IM=pinyin ;;
+    ja) L=ja_JP; VSC=ja;    THO=ja_JP; IM=mozc ;;
+    *)  LG=fr; L=fr_FR; VSC=fr; THO=fr_FR; IM= ;;
+esac
+export LANG=$L.UTF-8 LANGUAGE=$L:$LG
+unset LC_ALL
+VERSION=1
+MARQUE="$HOME/.config/maranyse/bureau"
+APPS="firefox-esr libreoffice-writer org.kde.gcompris tuxpaint org.thonny.Thonny com.microsoft.VSCode"
+
+# Dossiers personnels dans la langue de l'enfant (créés à la première session, gardés ensuite) ;
+# en français, l'ancien dossier anglais « Desktop » devient « Bureau » (son contenu est gardé)
+if [ "$LG" = fr ] && [ ! -f "$HOME/.config/user-dirs.dirs" ] && [ -d "$HOME/Desktop" ] && [ ! -L "$HOME/Desktop" ] && [ ! -e "$HOME/Bureau" ]; then
+    mv "$HOME/Desktop" "$HOME/Bureau"
+fi
+xdg-user-dirs-update >/dev/null 2>&1
+BUREAU=$(xdg-user-dir DESKTOP 2>/dev/null)
+[ -n "$BUREAU" ] && [ "$BUREAU" != "$HOME" ] || BUREAU="$HOME/Bureau"
+mkdir -p "$BUREAU"
+# dossier technique du Bureau à distance : caché dans l'explorateur de fichiers
+grep -qx thinclient_drives "$HOME/.hidden" 2>/dev/null || echo thinclient_drives >> "$HOME/.hidden"
+
+# Logiciels qui ont leur propre réglage de langue
+[ -f "$HOME/.vscode/argv.json" ] && sed -i "s/\"locale\": *\"[^\"]*\"/\"locale\": \"$VSC\"/" "$HOME/.vscode/argv.json"
+[ -f "$HOME/.config/Thonny/configuration.ini" ] && sed -i "s/^language = .*/language = $THO/" "$HOME/.config/Thonny/configuration.ini"
+
+# Saisie des écritures non latines : Ctrl+Espace passe du clavier suisse à l'écriture de la langue
+if [ -n "$IM" ]; then
+    export GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx XMODIFIERS=@im=fcitx SDL_IM_MODULE=fcitx
+    P="$HOME/.config/fcitx5"
+    if [ "$(cat "$P/maranyse-langue" 2>/dev/null)" != "$LG" ]; then
+        mkdir -p "$P"
+        printf '[Groups/0]\nName=MaranYSE\nDefault Layout=ch-fr\nDefaultIM=%s\n\n[Groups/0/Items/0]\nName=keyboard-ch-fr\nLayout=\n\n[Groups/0/Items/1]\nName=%s\nLayout=\n\n[GroupOrder]\n0=MaranYSE\n' \
+            "$IM" "$IM" > "$P/profile"
+        echo "$LG" > "$P/maranyse-langue"
+    fi
+    fcitx5 -d --replace >/dev/null 2>&1
+fi
+
+if [ "$(cat "$MARQUE" 2>/dev/null)" != "$VERSION" ]; then
+    # réglages précédents de l'apparence : on revient aux réglages MaranYSE (/etc/xdg)
+    X="$HOME/.config/xfce4/xfconf/xfce-perchannel-xml"
+    rm -f "$X/xfce4-panel.xml" "$X/xsettings.xml" "$X/xfwm4.xml" "$X/xfce4-desktop.xml"
+    rm -rf "$HOME/.config/xfce4/panel"
+    # ancien dossier anglais « Desktop » : son contenu rejoint « Bureau » (français seulement)
+    if [ "$LG" = fr ] && [ -d "$HOME/Desktop" ] && [ "$HOME/Desktop" != "$BUREAU" ] && [ ! -L "$HOME/Desktop" ]; then
+        for f in "$HOME/Desktop"/* "$HOME/Desktop"/.[!.]*; do
+            [ -e "$f" ] && mv -n "$f" "$BUREAU"/
+        done
+        rmdir "$HOME/Desktop" 2>/dev/null
+    fi
+    # icônes des applications sur le bureau (liens vers des lanceurs du système : le dossier personnel
+    # ne permet pas de lancer de programme, un lanceur qui y serait copié serait refusé)
+    for a in $APPS; do
+        [ -f "/usr/share/maranyse/lanceurs/$a.desktop" ] && ln -sfn "/usr/share/maranyse/lanceurs/$a.desktop" "$BUREAU/$a.desktop"
+    done
+    mkdir -p "${MARQUE%/*}" && echo "$VERSION" > "$MARQUE"
+fi
+exec startxfce4
