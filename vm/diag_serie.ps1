@@ -1,5 +1,6 @@
 # Redémarre la VM en capturant sa console série pendant 4 minutes
-$log = 'F:\vm_enfants\vm\build\serie.log'
+$out = Join-Path $PSScriptRoot 'build'
+$log = Join-Path $out 'serie.log'
 Stop-VM bureau-enfants -TurnOff -Force
 Set-VMComPort -VMName bureau-enfants -Number 1 -Path '\\.\pipe\bureau-com1'
 Start-VM bureau-enfants
@@ -13,4 +14,4 @@ while ((Get-Date) -lt $end) {
     if ($t.Wait(5000)) { if ($t.Result -le 0) { break }; $fs.Write($buf, 0, $t.Result); $fs.Flush() }
 }
 $fs.Close(); $pipe.Close()
-(Get-VMNetworkAdapter -VMName bureau-enfants).IPAddresses | Out-File 'F:\vm_enfants\vm\build\ip_apres.txt'
+(Get-VMNetworkAdapter -VMName bureau-enfants).IPAddresses | Out-File (Join-Path $out 'ip_apres.txt')

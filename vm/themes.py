@@ -6,12 +6,8 @@ vert pomme #7cc243, orange #f7a41d, jaune #ffc72c, bleu ciel #3ba6e0, rose #e85a
 DEFAUT = "marque"
 NOMS = {"marque": "MaranYSE", "ludique": "Ludique", "nuit": "Nuit", "epure": "Épuré", "classique": "Classique"}
 
-POLICES = {
-    "marque": "https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap",
-    "ludique": "https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap",
-    "nuit": "https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap",
-    "epure": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap",
-}
+# Polices système locales (aucune requête vers Google Fonts : fonctionne hors-ligne et sans fuite de métadonnées)
+POLICES = {}
 
 # couleurs des pastilles d'icônes du menu (dans l'ordre des pages)
 _MENU = [("#e3f2ef", "#0d5c63"), ("#fff1d6", "#c77700"), ("#eaf6dc", "#4f9a25"), ("#e2f1fb", "#1f7fbf"),
@@ -212,8 +208,6 @@ SOMBRE = MARQUE.replace(_MARQUE_VARS, _SOMBRE_VARS).replace("#0f6870 0%,#0b4f55 
 CSS["sombre"] = SOMBRE
 NOMS = {"marque": "MaranYSE · Pétrole", "foret": "MaranYSE · Forêt", "ocean": "MaranYSE · Océan", "prune": "MaranYSE · Prune",
         "corail": "MaranYSE · Corail", "sombre": "MaranYSE · Sombre", "ludique": "Ludique", "nuit": "Nuit", "epure": "Épuré", "classique": "Classique"}
-for _k in ("foret", "ocean", "prune", "corail", "sombre"):
-    POLICES[_k] = POLICES["marque"]
 
 
 def options(cur):

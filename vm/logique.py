@@ -8,28 +8,40 @@ Tourne dans la VM sous l'utilisateur parent (groupe docker).
 - Règles de l'orange : communes à tous les enfants + individuelles (qui remplacent les communes).
 - Fichiers : ~/.tableau.conf (identifiant:mot de passe), ~/controle.json (règles), ~/stats.db (statistiques).
 """
-import base64, html, json, os, re, secrets, sqlite3, subprocess, threading, time
+import base64, html, json, os, re, secrets, shlex, sqlite3, subprocess, threading, time
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse, quote
 
-C = "bureau-enfants"
+HOME = os.path.expanduser("~")
+for _cfg in (os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.env"), f"{HOME}/config.env"):
+    if os.path.isfile(_cfg):
+        for _l in open(_cfg, encoding="utf-8"):
+            _m = re.match(r"^\s*([A-Z0-9_]+)\s*=\s*['\"]?([^'\"\r\n#]+)['\"]?", _l)
+            if _m:
+                os.environ.setdefault(_m.group(1), _m.group(2).strip())
+
+C = os.environ.get("MARANYSE_VM_NAME", "bureau-enfants")
 # Comptes enfants : liste lue dans /secrets/comptes.txt (lignes « identifiant:Nom affiché »).
 # USERS et NAMES sont modifiés sur place, jamais réaffectés (tableau.py les importe).
-DEFAULT_USERS = ["driss", "paul", "carole"]          # comptes d'exemple, seulement si aucune liste n'existe encore
+DEFAULT_USERS = os.environ.get("MARANYSE_USERS", "driss paul carole").split()  # comptes d'exemple, seulement si aucune liste n'existe encore
 USERS = []
 NAMES = {}
 ACCOUNTS = "/secrets/comptes.txt"
 LOGIN_RE = r"[a-z][a-z0-9_]{1,30}"
 RESERVED = {"root", "parent", "admin", "xrdp", "nobody", "messagebus", "daemon", "bin", "sys", "games", "man", "mail", "www-data"}
 ALL = "_tous"                    # clé des règles communes
-PORT = 8080
+PORT = int(os.environ.get("MARANYSE_PORT", "8080"))
 TICK = 30
-HOME = os.path.expanduser("~")
+RETENTION_JOURS = 365            # conservation maximale des statistiques détaillées
+LAN_IPS = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16"
 CONF = f"{HOME}/.tableau.conf"
 RULES = f"{HOME}/controle.json"
 DB = f"{HOME}/stats.db"
-LOGIN, PASSWORD = open(CONF).read().strip().split(":", 1)
+if os.environ.get("MARANYSE_LOGIN") and os.environ.get("MARANYSE_PASSWORD"):
+    LOGIN, PASSWORD = os.environ["MARANYSE_LOGIN"], os.environ["MARANYSE_PASSWORD"]
+else:
+    LOGIN, PASSWORD = open(CONF).read().strip().split(":", 1)
 # Filtre familial CleanBrowsing Family : contenu adulte, logiciels malveillants, mais aussi sites proxy, VPN et anonymiseurs
 # (le contournement le plus courant par le navigateur) ; recherche sécurisée Google et YouTube en mode restreint imposés.
 FAMILY_DNS = ["185.228.168.168", "185.228.169.168"]
@@ -132,40 +144,70 @@ def container_state():
     return r.stdout.strip() or "absent"
 
 
-def active_connections():
-    out = set()
-    for line in dx("cat /proc/net/tcp6 /proc/net/tcp 2>/dev/null").splitlines():
+_SNAP_LOCK = threading.Lock()
+_SNAP = {"t": 0.0, "act": set(), "last": {}, "disp": {}}
+_SNAP_SEP = "___MARANYSE_SNAP___"
+
+
+def _invalidate_snap():
+    with _SNAP_LOCK:
+        _SNAP["t"] = 0.0
+
+
+def _snapshot():
+    """Relève d'un seul appel docker exec les connexions RDP actives, les dernières sessions xrdp et les écrans Xorg.
+    Mis en cache 0,8 s pour éviter les appels redondants lors du rendu d'une page ou d'un passage de la boucle."""
+    now = time.time()
+    with _SNAP_LOCK:
+        if now - _SNAP["t"] < 0.8:
+            return _SNAP["act"], _SNAP["last"], _SNAP["disp"]
+    raw = dx(f"cat /proc/net/tcp6 /proc/net/tcp 2>/dev/null; echo {_SNAP_SEP}; "
+             f"tail -n 3000 /var/log/xrdp.log 2>/dev/null; echo {_SNAP_SEP}; "
+             f"tail -n 3000 /var/log/xrdp-sesman.log 2>/dev/null; echo {_SNAP_SEP}; "
+             f"ps -eo user:32,args | grep '[X]org :'")
+    parts = raw.split(_SNAP_SEP)
+    if len(parts) != 4:
+        return set(), {}, {}
+    tcp_txt, xrdp_txt, ses_txt, ps_txt = parts
+    act = set()
+    for line in tcp_txt.splitlines():
         f = line.split()
         if len(f) < 4 or f[3] != "01" or ":" not in f[1]:
             continue
         if int(f[1].split(":")[1], 16) != 3389:
             continue
         h, p = f[2].split(":")
-        out.add((".".join(str(x) for x in bytes.fromhex(h[-8:])[::-1]), int(p, 16)))
-    return out
-
-
-def last_sessions():
+        act.add((".".join(str(x) for x in bytes.fromhex(h[-8:])[::-1]), int(p, 16)))
     names, last = {}, {}
-    for l in dx("tail -n 3000 /var/log/xrdp.log 2>/dev/null").splitlines():
+    for l in xrdp_txt.splitlines():
         m = re.match(r"\[(\d{8}-\d\d:\d\d:\d\d)\].*Connected client computer name: (.*)", l)
         if m:
             names[m.group(1)] = m.group(2).strip()
-    for l in dx("tail -n 3000 /var/log/xrdp-sesman.log 2>/dev/null").splitlines():
+    for l in ses_txt.splitlines():
         m = re.match(r"\[(\d{8}-\d\d:\d\d:\d\d)\].*created session.*username (\S+), ip (?:::ffff:)?([\d.]+):(\d+)", l)
         if m:
             ts, u, ip, port = m.groups()
             last[u] = dict(ts=ts, ip=ip, port=int(port), name=names.get(ts, ""))
-    return last
+    disp = {}
+    for l in ps_txt.splitlines():
+        m = re.match(r"(\S+)\s+\S*Xorg (:\d+)", l)
+        if m:
+            disp[m.group(1)] = m.group(2)
+    with _SNAP_LOCK:
+        _SNAP.update(t=time.time(), act=act, last=last, disp=disp)
+    return act, last, disp
+
+
+def active_connections():
+    return set(_snapshot()[0])
+
+
+def last_sessions():
+    return dict(_snapshot()[1])
 
 
 def displays():
-    d = {}
-    for l in dx("ps -eo user:32,args | grep '[X]org :'").splitlines():
-        m = re.match(r"(\S+)\s+\S*Xorg (:\d+)", l)
-        if m:
-            d[m.group(1)] = m.group(2)
-    return d
+    return dict(_snapshot()[2])
 
 
 def xenv(u, disp):
@@ -354,6 +396,35 @@ def target(cle):
     return None
 
 
+def normalize_grille_day(gg):
+    """Normalise une journée de planning en chaîne de 1440 caractères (1 par minute)."""
+    if isinstance(gg, str):
+        if len(gg) == 1440 and re.fullmatch(r"[VOR]{1440}", gg):
+            return gg
+        if len(gg) == 96 and re.fullmatch(r"[VOR]{96}", gg):
+            return "".join(c * 15 for c in gg)
+        if len(gg) == SLOTS and re.fullmatch(f"[VOR]{{{SLOTS}}}", gg):
+            return "".join(c * 30 for c in gg)
+    return "V" * 1440
+
+
+KID_PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
+
+
+def kid_hex(u, data=None):
+    """Couleur personnalisée de l'enfant (#rrggbb), sinon couleur par défaut de la palette."""
+    if data is None:
+        try:
+            data = json.load(open(RULES))
+        except (OSError, ValueError):
+            data = {}
+    c = (data.get(u) or {}).get("couleur", "")
+    if isinstance(c, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", c):
+        return c.lower()
+    idx = USERS.index(u) if u in USERS else 0
+    return KID_PALETTE[idx % len(KID_PALETTE)]
+
+
 def default_child():
     return {"grille": {str(i): "V" * SLOTS for i in range(7)}, "quota": {str(i): 0 for i in range(7)},
             "internet": "herite", "regles": [], "bonus_jusqu": None, "pause_jusqu": None, "langue": i18n.DEFAUT}
@@ -371,7 +442,7 @@ def load_rules():
     for u in USERS:
         old = data.get(u, {})
         r = default_child()
-        for k in ("grille", "quota", "bonus_jusqu", "pause_jusqu", "internet", "regles", "langue"):
+        for k in ("grille", "quota", "bonus_jusqu", "pause_jusqu", "internet", "regles", "langue", "couleur"):
             if k in old:
                 r[k] = old[k]
         if r["langue"] not in i18n.LANGUES:
@@ -388,7 +459,10 @@ def load_rules():
         r["regles"] = [x for x in r["regles"] if target(x.get("cle", ""))]
         for i in range(7):
             gg = r["grille"].get(str(i), "")
-            r["grille"][str(i)] = gg if re.fullmatch(f"[VOR]{{{SLOTS}}}", gg) else "V" * SLOTS
+            if isinstance(gg, str) and re.fullmatch(r"[VOR]{48}|[VOR]{96}|[VOR]{1440}", gg):
+                r["grille"][str(i)] = gg
+            else:
+                r["grille"][str(i)] = "V" * SLOTS
         out[u] = r
     return out
 
@@ -436,25 +510,24 @@ def access(u, r, now, used_s):
     if b and b > now:
         return "V", f"bonus accordé jusqu'à {b:%H:%M}", (b - now).total_seconds() / 60
     wd, mins = now.weekday(), now.hour * 60 + now.minute
-    k = mins // 30
-    g = r["grille"][str(wd)]
+    g = normalize_grille_day(r["grille"][str(wd)])
     q = int(r["quota"].get(str(wd)) or 0)
     if q and used_s >= q * 60:
         return "R", f"temps d'écran du jour épuisé ({q} min)", None
-    if g[k] == "R":
-        nxt = next((j for j in range(k + 1, SLOTS) if g[j] != "R"), None)
-        return "R", "horaire interdit" + (f", réouverture à {nxt // 2}h{30 * (nxt % 2):02d}" if nxt is not None else ""), None
+    if g[mins] == "R":
+        nxt = next((j for j in range(mins + 1, 1440) if g[j] != "R"), None)
+        return "R", "horaire interdit" + (f", réouverture à {nxt // 60}h{nxt % 60:02d}" if nxt is not None else ""), None
     left = None                 # minutes jusqu'à la prochaine case rouge (sur 24 h glissantes)
-    for j in range(1, SLOTS + 1):
-        d, kk = (wd + (k + j) // SLOTS) % 7, (k + j) % SLOTS
-        if r["grille"][str(d)][kk] == "R":
-            left = (k + j) * 30 - mins
+    for j in range(1, 1441):
+        d, mm = (wd + (mins + j) // 1440) % 7, (mins + j) % 1440
+        if normalize_grille_day(r["grille"][str(d)])[mm] == "R":
+            left = j
             break
     if q:
         ql = q - used_s / 60
         left = ql if left is None else min(left, ql)
     why = "selon le planning" + (f" · écran {dur(used_s)} / {q} min" if q else "")
-    return g[k], why, left
+    return g[mins], why, left
 
 
 def orange_status(data, u, c):
@@ -468,10 +541,10 @@ def orange_status(data, u, c):
 
 
 def profile(data, u, lvl, c):
-    """Restrictions effectives : {internet, apps (clés), domaines}."""
+    """Restrictions effectives : {internet, apps (clés), domains, blocked, site_kws}."""
     if lvl == "V":
-        return {"internet": "libre", "apps": [], "domains": [], "blocked": []}
-    apps, doms, names = [], [], []
+        return {"internet": "libre", "apps": [], "domains": [], "blocked": [], "site_kws": []}
+    apps, doms, names, kws = [], [], [], []
     for x, _, blocked in orange_status(data, u, c):
         if blocked:
             t = target(x["cle"])
@@ -480,7 +553,9 @@ def profile(data, u, lvl, c):
                 apps.append(x["cle"][4:])
             else:
                 doms += t[2]
-    return {"internet": internet_mode(data, u), "apps": sorted(apps), "domains": sorted(set(doms)), "blocked": names}
+                kws += t[3]
+    return {"internet": internet_mode(data, u), "apps": sorted(apps), "domains": sorted(set(doms)),
+            "blocked": names, "site_kws": sorted(set(kws))}
 
 
 def describe(prof):
@@ -496,6 +571,8 @@ def describe(prof):
 def db():
     c = sqlite3.connect(DB, timeout=10)
     c.executescript("""
+    PRAGMA journal_mode=WAL;
+    PRAGMA synchronous=NORMAL;
     CREATE TABLE IF NOT EXISTS usage(day TEXT, user TEXT, app TEXT, sec INTEGER, PRIMARY KEY(day,user,app));
     CREATE TABLE IF NOT EXISTS titles(day TEXT, user TEXT, app TEXT, title TEXT, sec INTEGER, PRIMARY KEY(day,user,app,title));
     CREATE TABLE IF NOT EXISTS sites(day TEXT, user TEXT, cle TEXT, sec INTEGER, PRIMARY KEY(day,user,cle));
@@ -507,6 +584,20 @@ def db():
                                           net_in INTEGER, net_out INTEGER, disk REAL, PRIMARY KEY(hour, user));
     """)
     return c
+
+
+def purge_old_stats(c, now):
+    """Purge quotidienne des statistiques de plus de RETENTION_JOURS (évite une croissance infinie de stats.db)."""
+    day = now.date().isoformat()
+    if STATE.get("purge_day") == day:
+        return
+    STATE["purge_day"] = day
+    lim = (now.date() - timedelta(days=RETENTION_JOURS)).isoformat()
+    for t in ("usage", "titles", "sites"):
+        c.execute(f"DELETE FROM {t} WHERE day<?", (lim,))
+    c.execute("DELETE FROM events WHERE ts<?", (lim,))
+    c.execute("DELETE FROM segments WHERE end<?", (lim,))
+    c.execute("DELETE FROM ressources WHERE hour<?", (lim,))
 
 
 def add(c, table, keys, sec):
@@ -821,7 +912,7 @@ def charge_hote():
 
 def apply_quota(ids, force=False):
     """Fixe le quota de chaque enfant (si changé, nouveau compte, ou toutes les heures) et relève ce qu'ils
-    occupent (toutes les 5 min). setquota/repquota de la VM via un petit conteneur privilégié (nsenter)."""
+    occupent (toutes les 5 min). Utilise sudo -n (règle sudoers ciblée) avec repli sur nsenter si nécessaire."""
     go = quota_go()
     sig = json.dumps([go, sorted(ids.items())])
     now = time.time()
@@ -829,10 +920,19 @@ def apply_quota(ids, force=False):
     if not regle and now - STATE.get("quota_lu", 0) < 300:
         return
     kb = go * 1024 * 1024
-    cmd = ("; ".join(f"setquota -u {uid} {kb} {kb} 0 0 /" for uid in ids.values()) + "; " if regle else "") + "repquota -un /"
     try:
-        r = subprocess.run(["docker", "run", "--rm", "--privileged", "--pid=host", "debian:bookworm-slim",
-                            "nsenter", "-t", "1", "-m", "--", "sh", "-c", cmd], capture_output=True, text=True, timeout=60)
+        if os.path.exists("/usr/sbin/repquota"):
+            if regle:
+                for uid in ids.values():
+                    subprocess.run(["sudo", "-n", "/usr/sbin/setquota", "-u", str(uid), str(kb), str(kb), "0", "0", "/"],
+                                   capture_output=True, text=True, timeout=15)
+            r = subprocess.run(["sudo", "-n", "/usr/sbin/repquota", "-un", "/"], capture_output=True, text=True, timeout=15)
+        else:
+            r = None
+        if not r or "Report for user quotas" not in r.stdout:
+            cmd = ("; ".join(f"setquota -u {uid} {kb} {kb} 0 0 /" for uid in ids.values()) + "; " if regle else "") + "repquota -un /"
+            r = subprocess.run(["docker", "run", "--rm", "--privileged", "--pid=host", "debian:bookworm-slim",
+                                "nsenter", "-t", "1", "-m", "--", "sh", "-c", cmd], capture_output=True, text=True, timeout=60)
     except subprocess.TimeoutExpired:
         return
     by_uid = {v: k for k, v in ids.items()}
@@ -895,13 +995,14 @@ def upstream_dns():
 
 
 def apply_internet(eff, ids, sec):
-    """Pare-feu par enfant + un petit serveur DNS par enfant pour bloquer des sites.
+    """Pare-feu par enfant (IPv4 + IPv6) + un petit serveur DNS par enfant pour bloquer des sites.
 
     Les règles sont remplacées D'UN SEUL COUP (iptables-restore, atomique) : il n'existe jamais d'instant où la
     redirection vers le DNS filtré a disparu (sinon une requête pourrait partir vers le DNS normal, non filtré).
+    L'accès des enfants à l'espace parents (:8080) et aux appareils du réseau local (RFC1918) est bloqué.
     Pendant le redémarrage des petits serveurs DNS, les requêtes échouent : en cas de doute, c'est fermé."""
     up = upstream_dns()
-    filt, nat, dns = [], [], ["mkdir -p /etc/kids-dns"]
+    filt, filt6, nat, dns = [], [], [], ["mkdir -p /etc/kids-dns"]
     for i, u in enumerate(USERS):
         uid, prof = ids.get(u), eff[u]
         mode, doms = prof["internet"], prof["domains"]
@@ -910,6 +1011,9 @@ def apply_internet(eff, ids, sec):
         if not uid:
             continue
         o = f"-m owner --uid-owner {uid}"
+        # L'espace parents (:8080) et l'IPv6 sortant sont toujours interdits aux sessions enfants
+        filt.append(f"-p tcp --dport {PORT} {o} -j REJECT")
+        filt6 += [f"-p tcp --dport {PORT} {o} -j REJECT", f"! -o lo {o} -j REJECT"]
         if sec[u]["reseau"] == "interdit":
             # internet réservé à Firefox (groupe « internet ») ; le reste de la machine (lo) reste accessible
             filt.append(f"! -o lo {o} ! --gid-owner {INTERNET_GID} -j REJECT")
@@ -935,19 +1039,61 @@ def apply_internet(eff, ids, sec):
             # DNS par HTTPS (DoH) : serveurs connus injoignables (le DNS normal, déjà redirigé plus haut, n'est pas touché)
             if doh:
                 filt.append(f"-d {','.join(DOH_IPS)} {o} -j REJECT")
+        else:
+            # En mode libre sans filtre DNS local, autoriser uniquement le port 53 vers le résolveur amont avant de bloquer le LAN
+            for proto in ("udp", "tcp"):
+                filt.append(f"-d {up} -p {proto} --dport 53 {o} -j RETURN")
+        # Isolation du réseau local (Livebox, NAS, hôte VM) pour les processus enfants
+        filt.append(f"! -o lo -d {LAN_IPS} {o} -j REJECT")
     rules = ("*filter\n:KIDS - [0:0]\n" + "".join(f"-A KIDS {r}\n" for r in filt) + "COMMIT\n"
              "*nat\n:KIDS - [0:0]\n" + "".join(f"-A KIDS {r}\n" for r in nat) + "COMMIT\n")
+    rules6 = "*filter\n:KIDS - [0:0]\n" + "".join(f"-A KIDS {r}\n" for r in filt6) + "COMMIT\n"
     # 1) chaînes et renvois présents ; 2) nouvelles règles, remplacées d'un bloc ; 3) serveurs DNS des enfants
     dx("iptables -N KIDS 2>/dev/null; iptables -C OUTPUT -j KIDS 2>/dev/null || iptables -I OUTPUT -j KIDS; "
-       "iptables -t nat -N KIDS 2>/dev/null; iptables -t nat -C OUTPUT -j KIDS 2>/dev/null || iptables -t nat -I OUTPUT -j KIDS; true")
+       "iptables -t nat -N KIDS 2>/dev/null; iptables -t nat -C OUTPUT -j KIDS 2>/dev/null || iptables -t nat -I OUTPUT -j KIDS; "
+       "ip6tables -N KIDS 2>/dev/null; ip6tables -C OUTPUT -j KIDS 2>/dev/null || ip6tables -I OUTPUT -j KIDS 2>/dev/null; true")
     dx("cat > /run/kids-rules && iptables-restore --noflush < /run/kids-rules && echo ok", inp=rules)
+    dx("cat > /run/kids-rules6 && ip6tables-restore --noflush < /run/kids-rules6 2>/dev/null || true", inp=rules6)
     dx("; ".join(dns) + "; touch /run/kids-net")
+
+
+def drop_established_sockets(uids_list):
+    """Coupe les connexions TCP établies (IPv4 et IPv6) des enfants dont le filtrage vient de se durcir,
+    afin que Firefox ne continue pas sur une connexion déjà ouverte (ex. YouTube ouvert avant l'heure orange)."""
+    if not uids_list:
+        return
+    wanted = {str(u) for u in uids_list}
+    targets = set()
+    for line in dx("cat /proc/net/tcp /proc/net/tcp6 2>/dev/null").splitlines():
+        f = line.split()
+        if len(f) < 8 or f[3] != "01" or f[7] not in wanted or ":" not in f[2]:
+            continue
+        h, p = f[2].split(":")
+        port = int(p, 16)
+        if len(h) == 8:
+            ip = ".".join(str(x) for x in bytes.fromhex(h)[::-1])
+            if not ip.startswith("127."):
+                targets.add(f"dst {ip} dport = {port}")
+        elif len(h) == 32 and h.startswith("0000000000000000FFFF0000"):
+            ip = ".".join(str(x) for x in bytes.fromhex(h[-8:])[::-1])
+            if not ip.startswith("127."):
+                targets.add(f"dst {ip} dport = {port}")
+    if not targets:
+        return
+    try:
+        pid = subprocess.run(["docker", "inspect", "-f", "{{.State.Pid}}", C], capture_output=True, text=True, timeout=10).stdout.strip()
+        if pid.isdigit() and pid != "0":
+            cmd = "; ".join(f"/usr/bin/ss -K {t} >/dev/null 2>&1" for t in sorted(targets))
+            subprocess.run(["sudo", "-n", "/usr/bin/nsenter", "-t", pid, "-n", "--", "sh", "-c", cmd],
+                           capture_output=True, timeout=15)
+    except (subprocess.TimeoutExpired, OSError):
+        pass
 
 
 def apply_exec(allowed):
     """Programmes téléchargés : dossiers des enfants et dossiers temporaires montés avec ou sans « noexec ».
-    Le bureau n'a pas le droit de changer ses montages (profil AppArmor) : un petit conteneur privilégié entre
-    dans son espace de montage (nsenter) le temps de la commande. Le montage de la VM n'est pas modifié."""
+    Le bureau n'a pas le droit de changer ses montages (profil AppArmor) : utilise sudo -n nsenter sur la VM
+    (avec repli sur un conteneur privilégié si sudoers n'est pas encore configuré)."""
     want = "exec" if allowed else "noexec"
     cur = {m: ("noexec" if "noexec" in o.split(",") else "exec")
            for _, m, _, o, *_ in (l.split() for l in dx("cat /proc/mounts").splitlines() if len(l.split()) >= 4) if m in EXEC_MOUNTS}
@@ -958,8 +1104,11 @@ def apply_exec(allowed):
     try:
         pid = subprocess.run(["docker", "inspect", "-f", "{{.State.Pid}}", C], capture_output=True, text=True, timeout=10).stdout.strip()
         if pid.isdigit() and pid != "0":
-            subprocess.run(["docker", "run", "--rm", "--privileged", "--pid=host", "debian:bookworm-slim",
-                            "nsenter", "-t", pid, "-m", "sh", "-c", cmd], capture_output=True, timeout=40)
+            r = subprocess.run(["sudo", "-n", "/usr/bin/nsenter", "-t", pid, "-m", "--", "sh", "-c", cmd],
+                               capture_output=True, timeout=20)
+            if r.returncode != 0:
+                subprocess.run(["docker", "run", "--rm", "--privileged", "--pid=host", "debian:bookworm-slim",
+                                "nsenter", "-t", pid, "-m", "sh", "-c", cmd], capture_output=True, timeout=40)
     except subprocess.TimeoutExpired:
         pass
 
@@ -999,6 +1148,33 @@ def kill_blocked_apps(eff):
         dx("; ".join(cmds) + "; true")
 
 
+def kill_blocked_sites(eff, disp, newly_hardened_users):
+    """Arrête immédiatement les sites bloqués ou épuisés encore ouverts dans Firefox (vidéo en mémoire tampon,
+    recherche en cache) : ferme Firefox si un nouveau site vient d'être bloqué/épuisé, ou ferme l'onglet
+    bloqué si son titre correspond à un site interdit."""
+    for u in USERS:
+        if u not in disp:
+            continue
+        kws = eff[u].get("site_kws") or []
+        if not kws and eff[u]["internet"] != "bloque":
+            continue
+        if u in newly_hardened_users and "firefox" not in eff[u]["apps"]:
+            # Un site vient de basculer à bloqué/épuisé (ou internet coupé) : fermer Firefox arrête immédiatement
+            # toute vidéo déjà bufferisée et purge le cache DNS / Service Worker en mémoire.
+            dx(f"if pkill -u {u} -x firefox-esr || pkill -u {u} -x GeckoMain; then sleep 2; pkill -KILL -u {u} -x firefox-esr GeckoMain 2>/dev/null; fi; true")
+            continue
+        if not kws:
+            continue
+        for l in dx("wmctrl -lx 2>/dev/null", user=u, env=xenv(u, disp[u])).splitlines():
+            f = l.split(None, 4)
+            if len(f) < 5 or f[1] == "-1":
+                continue
+            wid, cls, title = f[0], f[2].lower(), f[4].lower()
+            if "firefox" in cls and any(w in title for w in kws):
+                dx(f"xdotool windowactivate --sync {shlex.quote(wid)} key --clearmodifiers ctrl+w 2>/dev/null || true",
+                   user=u, env=xenv(u, disp[u]))
+
+
 AUTO_TITLE = "MaranYSE"
 
 
@@ -1011,7 +1187,7 @@ def popup(u, disp, text, kind="info", auto=True):
         text = i18n.traduire_lignes(text, lang, noms_traduction())
     if auto:
         dx(f"for p in $(pgrep -u {u} -x zenity); do tr '\\0' ' ' < /proc/$p/cmdline | grep -q -- '--title={AUTO_TITLE}' && kill $p; done; true")
-    dx(f'zenity --{kind} "--title={title}" --width=420 --text="$MSG"', user=u,
+    dx(f'zenity --{shlex.quote(kind)} --title={shlex.quote(title)} --width=420 --text="$MSG"', user=u,
        env={**xenv(u, disp), "MSG": text}, detach=True)
 
 
@@ -1047,6 +1223,7 @@ def logout(u):
     dx(f"pkill -TERM -u {u}; sleep 2; pkill -KILL -u {u}; rm -f /run/kids-pause-{u}; true")
     for p in front:              # processus xrdp (root) qui sert la connexion de cet enfant : vérifié avant de l'arrêter
         dx(f"[ \"$(ps -o comm= -p {p})\" = xrdp ] && [ \"$(ps -o ppid= -p {p} | tr -d ' ')\" != 1 ] && kill {p}; true")
+    _invalidate_snap()
 
 
 PAUSE_TITLE = "PAUSE-BUREAU-ENFANTS"
@@ -1118,10 +1295,11 @@ def _tick():
         sync_langues(data)
     except Exception as ex:
         print("erreur langues:", repr(ex), flush=True)
-    act, last, disp = active_connections(), last_sessions(), displays()
+    act, last, disp = _snapshot()
     sites = tracked_sites(data)
     c = db()
     try:
+        purge_old_stats(c, now)
         conn, fg = {}, {}
         for u in USERS:
             s = last.get(u)
@@ -1168,14 +1346,30 @@ def _tick():
         eff = {u: profile(data, u, lv[u][0], c) for u in USERS}
         sec = {u: {k: secu(data, u, k) for k in SECU} for u in USERS}
         net_sig = json.dumps({u: [eff[u]["internet"], eff[u]["domains"], sec[u]["doh"], sec[u]["reseau"], sec[u]["pip"]] for u in USERS}) + json.dumps(ids)
+        newly_hardened_users = set()
         if net_sig != STATE["net_sig"] or not net_ok():
+            had_prev = "doms" in STATE
+            prev_doms = STATE.get("doms", {})
+            prev_net = STATE.get("net_mode", {})
             apply_internet(eff, ids, sec)
             STATE["net_sig"] = net_sig
+            # Si un enfant vient de subir un nouveau blocage de site ou coupure internet, on coupe ses sockets existants
+            if had_prev:
+                newly_hardened_users = {u for u in USERS if (
+                    (eff[u]["internet"] == "bloque" and prev_net.get(u) != "bloque") or
+                    (set(eff[u]["domains"]) - prev_doms.get(u, set()))
+                )}
+            hardened = [ids[u] for u in newly_hardened_users if u in ids]
+            if hardened:
+                drop_established_sockets(hardened)
+            STATE["doms"] = {u: set(eff[u]["domains"]) for u in USERS}
+            STATE["net_mode"] = {u: eff[u]["internet"] for u in USERS}
         app_sig = json.dumps({u: eff[u]["apps"] for u in USERS})
         if app_sig != STATE["app_sig"] or dx("cat /etc/kids-apps 2>/dev/null").strip() != "ok":
             apply_apps(eff, sec)
             STATE["app_sig"] = app_sig
         kill_blocked_apps(eff)
+        kill_blocked_sites(eff, disp, newly_hardened_users)
         apply_exec(data[ALL]["securite"]["programmes"] == "autorise")
 
         if rules_stamp() != stamp:

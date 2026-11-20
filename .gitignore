@@ -2,6 +2,7 @@
 # clé SSH, mots de passe, jeton, sauvegardes (vm/build) ; configuration d'installation avec mot de passe (vm/seed)
 vm/build/
 vm/seed/
+vm/config.env
 *.vhdx
 *.vhd
 *.iso

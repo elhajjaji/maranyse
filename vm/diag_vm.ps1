@@ -1,5 +1,5 @@
 # Diagnostic : état de la VM + capture d'écran de sa console
-$out = 'F:\vm_enfants\vm\build'
+$out = Join-Path $PSScriptRoot 'build'
 $vm = Get-VM bureau-enfants
 $vm | Format-List Name,State,Uptime,Heartbeat,Status,MemoryAssigned | Out-File "$out\diag.txt" -Encoding utf8
 Get-VMNetworkAdapter -VMName bureau-enfants | Format-List MacAddress,IPAddresses,Status,SwitchName | Out-File "$out\diag.txt" -Append -Encoding utf8

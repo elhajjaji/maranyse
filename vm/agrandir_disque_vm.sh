@@ -1,13 +1,16 @@
 #!/bin/bash
 # MaranYSE — agrandit le disque de la VM sans l'arrêter (les sessions des enfants continuent).
-# Usage depuis Git Bash :  bash F:/vm_enfants/vm/agrandir_disque_vm.sh 250      (taille voulue en Go)
+# Usage depuis Git Bash :  bash vm/agrandir_disque_vm.sh 250      (taille voulue en Go)
 # Windows demande l'autorisation administrateur (Hyper-V). Un disque ne peut pas être réduit ensuite.
 set -e
 GO=${1:?Taille voulue en Go, par exemple : bash agrandir_disque_vm.sh 250}
-VM=192.168.1.15
-KEY=/f/vm_enfants/vm/build/cle_vm
-ADM=$(cut -d: -f2 /f/vm_enfants/vm/build/compte_admin_vm.txt)
-O="-F /dev/null -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+ICI=$(cd "$(dirname "$0")" && pwd)
+[ -f "$ICI/config.env" ] && . "$ICI/config.env"
+VM=${MARANYSE_VM_IP:-192.168.1.15}
+KEY="$ICI/build/cle_vm"
+KNOWN="$ICI/build/known_hosts"
+ADM=$(cut -d: -f2 "$ICI/build/compte_admin_vm.txt")
+O="-F /dev/null -i $KEY -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$KNOWN -o LogLevel=ERROR"
 TMP=$(cygpath -w "${TMPDIR:-/tmp}")
 PS1="$TMP\\maranyse_disque.ps1"; OUT="$TMP\\maranyse_disque.txt"
 
@@ -28,9 +31,11 @@ echo "Hyper-V : $R"
 case "$R" in OK*) ;; *) exit 1 ;; esac
 
 # 2. Dans la VM : la partition et le système de fichiers prennent la nouvelle place (à chaud)
-ssh $O parent@$VM "ADM='$ADM' bash -s" <<'REMOTE'
+printf '%s\n' "$ADM" | ssh $O parent@$VM 'umask 077 && cat > /tmp/.maranyse_adm'
+ssh $O parent@$VM "bash -s" <<'REMOTE'
 set -e
-S() { echo "$ADM" | sudo -S -p '' "$@"; }
+ADM=$(cat /tmp/.maranyse_adm); rm -f /tmp/.maranyse_adm
+S() { printf '%s\n' "$ADM" | sudo -S -p '' "$@"; }
 S sh -c 'echo 1 > /sys/class/block/sda/device/rescan'
 command -v growpart >/dev/null || [ -x /usr/bin/growpart ] || S env DEBIAN_FRONTEND=noninteractive apt-get install -y -q cloud-guest-utils >/dev/null
 S growpart /dev/sda 1 || true          # « NOCHANGE » si déjà à la bonne taille

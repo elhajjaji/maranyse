@@ -8,8 +8,11 @@ services:
     init: true
     shm_size: "2gb"
     cap_add: [NET_ADMIN]
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: 1
+      net.ipv6.conf.default.disable_ipv6: 1
     environment:
-      USERS: "driss paul carole"
+      USERS: "${MARANYSE_USERS:-driss paul carole}"
     ports:
       - "${RDP_BIND:-0.0.0.0}:${RDP_PORT:-3389}:3389"
     volumes:

@@ -3,7 +3,16 @@
 # Le jeton (build\jeton_charge.txt) est le meme que ~/.jeton_charge dans la VM : sans lui, le tableau refuse les chiffres.
 $ErrorActionPreference = 'SilentlyContinue'
 $jeton = (Get-Content -Raw "$PSScriptRoot\build\jeton_charge.txt").Trim()
-$url = 'http://192.168.1.15:8080/api/charge-hote'
+$ip = '192.168.1.15'; $port = '8080'
+if (Test-Path "$PSScriptRoot\config.env") {
+    Get-Content "$PSScriptRoot\config.env" | ForEach-Object {
+        if ($_ -match '^\s*MARANYSE_VM_IP\s*=\s*["'']?([^"''\s]+)') { $ip = $Matches[1] }
+        if ($_ -match '^\s*MARANYSE_PORT\s*=\s*["'']?(\d+)') { $port = $Matches[1] }
+    }
+} elseif (Test-Path "$PSScriptRoot\build\ip_vm.txt") {
+    $ip = ((Get-Content -Raw "$PSScriptRoot\build\ip_vm.txt").Trim() -split '\s+')[0]
+}
+$url = "http://${ip}:${port}/api/charge-hote"
 while ($true) {
     try {
         $p = (Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'").PercentProcessorTime

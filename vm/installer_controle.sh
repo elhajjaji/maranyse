@@ -1,29 +1,42 @@
 #!/bin/bash
 # MaranYSE — met à jour le contrôle parental dans la VM :
 # reconstruit l'image du bureau, recrée le conteneur (avec NET_ADMIN pour le pare-feu par enfant)
-# et remplace le tableau de bord.  Les sessions ouvertes sont fermées.
-# Lancer depuis Git Bash :  bash F:/vm_enfants/vm/installer_controle.sh
+# et remplace le tableau de bord. Les sessions ouvertes sont fermées.
+# Lancer depuis Git Bash :  bash vm/installer_controle.sh
 set -e
-VM=192.168.1.15
-KEY=/f/vm_enfants/vm/build/cle_vm
-ADM=$(cut -d: -f2 /f/vm_enfants/vm/build/compte_admin_vm.txt)
-O="-F /dev/null -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+ICI=$(cd "$(dirname "$0")" && pwd)
+RACINE=$(cd "$ICI/.." && pwd)
+[ -f "$ICI/config.env" ] && . "$ICI/config.env"
+VM=${MARANYSE_VM_IP:-192.168.1.15}
+USERS_INIT=${MARANYSE_USERS:-driss paul carole}
+KEY="$ICI/build/cle_vm"
+KNOWN="$ICI/build/known_hosts"
+ADM=$(cut -d: -f2 "$ICI/build/compte_admin_vm.txt")
+O="-F /dev/null -i $KEY -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$KNOWN -o LogLevel=ERROR"
 
 # Capacités de l'ordinateur hôte (page Puissance : le curseur est un pourcentage de cet ordinateur).
 # Le plafond de la VM (Get-VM) demande les droits administrateur : sinon la valeur déjà connue est gardée.
 powershell.exe -NoProfile -Command '$c=Get-CimInstance Win32_ComputerSystem; $p=(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim();
   $h=[ordered]@{cpu=$p; threads=[int]$c.NumberOfLogicalProcessors; ram_mo=[int]($c.TotalPhysicalMemory/1MB); disque_libre_go=[int]((Get-PSDrive F).Free/1GB)};
   try { $m=Get-VM bureau-enfants -ErrorAction Stop; $h.vm_ram_mo=[int]($(if($m.DynamicMemoryEnabled){$m.MemoryMaximum}else{$m.MemoryStartup})/1MB) } catch {}
-  $h | ConvertTo-Json -Compress' | tr -d '
-' > /tmp/maranyse_hote.json
+  $h | ConvertTo-Json -Compress' | tr -d '\r\n' > /tmp/maranyse_hote.json
 scp $O /tmp/maranyse_hote.json parent@$VM:/tmp/hote_mesure.json
-scp $O /f/vm_enfants/vm/tableau.py /f/vm_enfants/vm/logique.py /f/vm_enfants/vm/marque.py /f/vm_enfants/vm/logiciels.py /f/vm_enfants/vm/i18n.py /f/vm_enfants/vm/themes.py /f/vm_enfants/container/Dockerfile /f/vm_enfants/container/entrypoint.sh /f/vm_enfants/container/firefox-net.c /f/vm_enfants/container/sans-internet.c /f/vm_enfants/container/sans-internet-ff.c parent@$VM:/tmp/
-ssh $O parent@$VM 'rm -rf /tmp/bureau /tmp/i18n'
-scp $O -r /f/vm_enfants/vm/i18n parent@$VM:/tmp/
-scp $O -r /f/vm_enfants/container/bureau parent@$VM:/tmp/
-ssh $O parent@$VM "ADM='$ADM' bash -s" <<'REMOTE'
+scp $O "$ICI/config.env" "$ICI/tableau.py" "$ICI/style.py" "$ICI/stats.py" "$ICI/aide.py" "$ICI/logique.py" "$ICI/marque.py" "$ICI/logiciels.py" "$ICI/i18n.py" "$ICI/themes.py" \
+  "$RACINE/container/Dockerfile" "$RACINE/container/entrypoint.sh" "$RACINE/container/firefox-net.c" "$RACINE/container/sans-internet.c" "$RACINE/container/sans-internet-ff.c" parent@$VM:/tmp/
+ssh $O parent@$VM 'rm -rf /tmp/bureau /tmp/i18n /tmp/logo_web && mkdir -p /tmp/logo_web/web'
+scp $O -r "$ICI/i18n" parent@$VM:/tmp/
+scp $O -r "$RACINE/container/bureau" parent@$VM:/tmp/
+scp $O "$RACINE/container/logo_web/logo4_440.png" parent@$VM:/tmp/logo_web/
+scp $O "$RACINE/container/logo_web/web/e320.png" "$RACINE/container/logo_web/web/e128.png" "$RACINE/container/logo_web/web/logo420.jpg" \
+  "$RACINE/container/logo_web/web/logo200.jpg" "$RACINE/container/logo_web/web/ban440.jpg" "$RACINE/container/logo_web/web/slogan760.jpg" \
+  "$RACINE/container/logo_web/web/ban1200.jpg" "$RACINE/container/logo_web/web/favjpeg.png" parent@$VM:/tmp/logo_web/web/
+
+# Le mot de passe sudo est transmis via un fichier 0600 éphémère sur stdin (jamais exposé dans ps aux)
+printf '%s\n' "$ADM" | ssh $O parent@$VM 'umask 077 && cat > /tmp/.maranyse_adm'
+ssh $O parent@$VM "USERS_INIT='$USERS_INIT' bash -s" <<'REMOTE'
 set -e
-S() { echo "$ADM" | sudo -S -p '' "$@"; }
+ADM=$(cat /tmp/.maranyse_adm); rm -f /tmp/.maranyse_adm
+S() { printf '%s\n' "$ADM" | sudo -S -p '' "$@"; }
 S install -m 644 /tmp/Dockerfile /tmp/entrypoint.sh /tmp/firefox-net.c /tmp/sans-internet.c /tmp/sans-internet-ff.c /srv/bureau/build/
 # bureau « façon Windows » (thème, barre des tâches, menu Démarrer, fond d'écran)
 S rm -rf /srv/bureau/build/bureau && S cp -r /tmp/bureau /srv/bureau/build/bureau
@@ -44,7 +57,8 @@ findmnt -no OPTIONS /srv/bureau/home | grep -q noexec || { echo "ERREUR : /srv/b
 # USERS = comptes de départ seulement ; ensuite la liste est dans /secrets/comptes.txt (page Comptes)
 docker rm -f bureau-enfants >/dev/null 2>&1 || true
 docker run -d --init --name bureau-enfants --hostname bureau-enfants --restart unless-stopped --shm-size 2g \
-  --cap-add NET_ADMIN -p 3389:3389 -e USERS="driss paul carole" \
+  --cap-add NET_ADMIN --sysctl net.ipv6.conf.all.disable_ipv6=1 --sysctl net.ipv6.conf.default.disable_ipv6=1 \
+  -p 3389:3389 -e USERS="$USERS_INIT" \
   --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777 --tmpfs /var/tmp:rw,nosuid,nodev,noexec,mode=1777 \
   --tmpfs /run/lock:rw,nosuid,nodev,noexec,mode=1777 --tmpfs /run/xrdp/sockdir:rw,nosuid,nodev,noexec,mode=3777 \
   -v /srv/bureau/home:/home -v /srv/bureau/secrets:/secrets bureau-enfants:latest >/dev/null
@@ -62,17 +76,18 @@ PY
 command -v setquota >/dev/null 2>&1 || [ -x /usr/sbin/setquota ] || S env DEBIAN_FRONTEND=noninteractive apt-get install -y -q quota >/dev/null
 grep -qE '^\S+\s+/\s+ext4\s+\S*usrquota' /etc/fstab || S sed -i -E '/^\S+\s+\/\s+ext4\s/ s/(\S+\s+\/\s+ext4\s+)(\S+)/\1\2,usrquota/' /etc/fstab
 findmnt -no OPTIONS / | grep -q usrquota || { S mount -o remount,usrquota / && S quotacheck -cum / && S quotaon -u /; }
+# Règle sudoers ciblée (évite de lancer un conteneur privilégié toutes les 5 min pour les quotas et montages noexec)
+S sh -c 'printf "%s\n" "parent ALL=(root) NOPASSWD: /usr/sbin/setquota, /usr/sbin/repquota, /usr/bin/nsenter" > /etc/sudoers.d/maranyse && chmod 440 /etc/sudoers.d/maranyse'
 # Mémoire ajoutée à chaud par Hyper-V (mémoire dynamique) : mise en service tout de suite, sinon la VM reste à sa taille de départ
-S sh -c 'printf "%s
-" "SUBSYSTEM==\"memory\", ACTION==\"add\", ATTR{state}==\"offline\", ATTR{state}=\"online\"" > /etc/udev/rules.d/40-maranyse-memoire.rules'
+S sh -c 'printf "%s\n" "SUBSYSTEM==\"memory\", ACTION==\"add\", ATTR{state}==\"offline\", ATTR{state}=\"online\"" > /etc/udev/rules.d/40-maranyse-memoire.rules'
 S sh -c 'for f in /sys/devices/system/memory/memory*/state; do grep -q offline $f && echo online > $f; done; true'
+install -m 600 /tmp/config.env ~/config.env
 install -m 755 /tmp/tableau.py ~/tableau.py
-install -m 644 /tmp/logique.py ~/logique.py
-install -m 644 /tmp/marque.py ~/marque.py
-install -m 644 /tmp/logiciels.py ~/logiciels.py
-install -m 644 /tmp/themes.py ~/themes.py
-install -m 644 /tmp/i18n.py ~/i18n.py
+for m in style.py stats.py aide.py logique.py marque.py logiciels.py themes.py i18n.py; do
+  install -m 644 "/tmp/$m" ~/"$m"
+done
 mkdir -p ~/i18n && install -m 644 /tmp/i18n/*.json ~/i18n/
+rm -rf ~/logo_web && cp -r /tmp/logo_web ~/logo_web
 S systemctl restart tableau-parent
 sleep 3
 echo "bureau : $(docker inspect -f '{{.State.Status}}' bureau-enfants) / tableau : $(systemctl is-active tableau-parent)"

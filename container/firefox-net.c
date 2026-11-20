@@ -40,18 +40,40 @@ static int option_ok(const char *a) {
     return 0;
 }
 
+static int env_ok(const char *e) {
+    static const char *ok[] = {
+        "HOME", "USER", "LOGNAME", "SHELL", "PWD", "TERM",
+        "DISPLAY", "XAUTHORITY", "XAUTHLOCALHOSTNAME", "DBUS_SESSION_BUS_ADDRESS",
+        "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "LC_TIME", "LC_NUMERIC",
+        "LC_COLLATE", "LC_MONETARY", "LC_PAPER", "LC_NAME", "LC_ADDRESS", "LC_TELEPHONE",
+        "LC_MEASUREMENT", "LC_IDENTIFICATION", "TZ",
+        "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP",
+        "XDG_DATA_DIRS", "XDG_CONFIG_DIRS", "XDG_MENU_PREFIX", "XDG_SESSION_CLASS", "XDG_SESSION_ID",
+        "GTK_IM_MODULE", "QT_IM_MODULE", "XMODIFIERS", "SDL_IM_MODULE", NULL
+    };
+    size_t n = strcspn(e, "=");
+    if (e[n] != '=')
+        return 0;
+    for (int i = 0; ok[i]; i++) {
+        if (strlen(ok[i]) == n && strncmp(e, ok[i], n) == 0) {
+            /* Les modules de saisie (ex. fcitx) ne doivent jamais contenir un chemin vers une bibliothèque */
+            if (strstr(ok[i], "IM_MODULE") && strchr(e + n + 1, '/'))
+                return 0;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     gid_t g = getegid();                 /* groupe « internet » donné par le bit setgid */
     if (setregid(g, g) != 0)              /* groupe réel = groupe effectif : Firefox démarre normalement */
         return 1;
-    static const char *bad[] = {"LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "LD_DEBUG", "GCONV_PATH",
-                                "MALLOC_TRACE", "GTK_MODULES", "GTK3_MODULES", "GIO_EXTRA_MODULES", NULL};
-    for (int i = 0; bad[i]; i++)
-        unsetenv(bad[i]);
-    for (int again = 1; again;) {         /* toutes les variables MOZ_* */
+    /* Liste blanche stricte de l'environnement : retire LD_*, MOZ_*, GTK_PATH, GIO_MODULE_DIR, GDK_PIXBUF_MODULE_FILE... */
+    for (int again = 1; again;) {
         again = 0;
         for (char **e = environ; e && *e; e++)
-            if (strncmp(*e, "MOZ_", 4) == 0) {
+            if (!env_ok(*e)) {
                 char name[256];
                 size_t n = strcspn(*e, "=");
                 if (n >= sizeof name)
@@ -63,6 +85,7 @@ int main(int argc, char **argv) {
                 break;
             }
     }
+    setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
     setenv("LD_PRELOAD", PRELOAD, 1);
     char **av = calloc((size_t)argc + 1, sizeof *av);
     if (!av)

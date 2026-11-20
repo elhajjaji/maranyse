@@ -47,10 +47,17 @@ language = fr_FR
 done
 
 # Internet fermé par défaut pour les enfants tant que le tableau de bord n'a pas posé leurs règles (≤ 30 s) :
-# au démarrage, rien ne passe sans filtre.
+# au démarrage, rien ne passe sans filtre (IPv4 et IPv6).
 rm -f /run/kids-net /run/kids-dns-*.pid
 iptables -N KIDS 2>/dev/null; iptables -F KIDS; iptables -C OUTPUT -j KIDS 2>/dev/null || iptables -I OUTPUT -j KIDS
-for u in $USERS; do iptables -A KIDS ! -o lo -m owner --uid-owner "$(id -u "$u")" -j REJECT 2>/dev/null || true; done
+ip6tables -N KIDS 2>/dev/null; ip6tables -F KIDS; ip6tables -C OUTPUT -j KIDS 2>/dev/null || ip6tables -I OUTPUT -j KIDS 2>/dev/null || true
+for u in $USERS; do
+    uid="$(id -u "$u")"
+    iptables -A KIDS ! -o lo -m owner --uid-owner "$uid" -j REJECT 2>/dev/null || true
+    iptables -A KIDS -p tcp --dport 8080 -m owner --uid-owner "$uid" -j REJECT 2>/dev/null || true
+    ip6tables -A KIDS ! -o lo -m owner --uid-owner "$uid" -j REJECT 2>/dev/null || true
+    ip6tables -A KIDS -p tcp --dport 8080 -m owner --uid-owner "$uid" -j REJECT 2>/dev/null || true
+done
 
 # Comptes en pause ou hors horaire : ils restent verrouillés après un redémarrage du bureau
 for u in $(cat /secrets/verrouilles.txt 2>/dev/null); do usermod -L "$u" 2>/dev/null || true; done
