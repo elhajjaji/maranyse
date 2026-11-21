@@ -3,6 +3,7 @@
 vm/build/
 vm/seed/
 vm/config.env
+.env
 *.vhdx
 *.vhd
 *.iso

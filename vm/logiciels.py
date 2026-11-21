@@ -13,8 +13,9 @@ Utilisé aussi en ligne de commande :  python3 logiciels.py script   (script d'i
 import base64, json, os, re, shlex, subprocess, sys, threading, time
 from datetime import datetime
 
-C = "bureau-enfants"
-FICHIER = os.path.join(os.path.expanduser("~"), "logiciels.json")
+C = os.environ.get("MARANYSE_VM_NAME", "bureau-enfants")
+DATA_DIR = os.environ.get("MARANYSE_DATA_DIR", os.path.expanduser("~"))
+FICHIER = os.path.join(DATA_DIR, "logiciels.json")
 PAQUET_RE = r"[a-z0-9][a-z0-9+.-]{1,60}"
 # Outils de contournement : refusés même si les parents les demandent (le réseau des enfants est contrôlé
 # par le pare-feu, mais autant ne pas les proposer)
@@ -363,7 +364,7 @@ json.dump(out,open(H+'/.config/Code/languagepacks.json','w'))"""
 # un fichier ou un lien déposé par l'enfant ne peut ni faire autoriser son propre programme, ni faire écrire root ailleurs.
 BIN = "/usr/local/lib/maranyse/bin"
 REF = "/usr/local/share/maranyse/vscode-ext"
-STOCK = os.path.join(os.path.expanduser("~"), "maranyse-bin")     # copie dans la VM (le bureau peut être recréé)
+STOCK = os.path.join(DATA_DIR, "maranyse-bin")     # copie dans la VM/volume (le bureau peut être recréé)
 _BINREF = """import hashlib,os,shutil,sys
 R,B=sys.argv[1],sys.argv[2]; os.makedirs(B,exist_ok=True); garde=set()
 for r,ds,fs in os.walk(R):

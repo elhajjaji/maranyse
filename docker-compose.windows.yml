@@ -1,0 +1,52 @@
+# MaranYSE — Docker Desktop sur Windows / macOS (mode bridge + redirection de ports)
+# Lancer :
+#   docker compose -f docker-compose.windows.yml up -d --build
+
+services:
+  bureau-enfants:
+    build: ./container
+    image: bureau-enfants:latest
+    container_name: bureau-enfants
+    hostname: bureau-enfants
+    restart: unless-stopped
+    init: true
+    shm_size: "2gb"
+    cap_add: [NET_ADMIN]
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: 1
+      net.ipv6.conf.default.disable_ipv6: 1
+    environment:
+      USERS: "${MARANYSE_USERS:-driss paul carole}"
+    ports:
+      - "${MARANYSE_PORT:-8080}:8080"
+      - "${MARANYSE_RDP_PORT:-3390}:3389"
+    volumes:
+      - homes:/home
+      - secrets:/secrets
+
+  maranyse-parents:
+    build:
+      context: .
+      dockerfile: container/Dockerfile.parents
+    image: maranyse-parents:latest
+    container_name: maranyse-parents
+    restart: unless-stopped
+    depends_on:
+      - bureau-enfants
+    network_mode: "service:bureau-enfants"
+    environment:
+      MARANYSE_DATA_DIR: /data
+      MARANYSE_VM_NAME: bureau-enfants
+      MARANYSE_PORT: ${MARANYSE_PORT:-8080}
+      MARANYSE_RDP_PORT: ${MARANYSE_RDP_PORT:-3390}
+      MARANYSE_USERS: "${MARANYSE_USERS:-driss paul carole}"
+      MARANYSE_LOGIN: ${MARANYSE_LOGIN:-parent}
+      MARANYSE_PASSWORD: ${MARANYSE_PASSWORD:-maranyse}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - parents_data:/data
+
+volumes:
+  homes:
+  secrets:
+  parents_data:

@@ -184,6 +184,31 @@ il retrouvera tout à la reprise. Le temps de pause n'est pas compté.</p>
     return msg + pause + more_dlg
 
 
+def rdp_adresse():
+    """Adresse IP/hôte et port RDP à afficher pour se connecter au bureau de l'enfant."""
+    port = os.environ.get("MARANYSE_RDP_PORT", "").strip() or "3389"
+    ip = os.environ.get("MARANYSE_LAN_IP", "").strip() or os.environ.get("MARANYSE_VM_IP", "").strip()
+    if not ip:
+        h = getattr(REQ, "host", "").strip()
+        if h.startswith("["):
+            ip = h.split("]")[0].lstrip("[")
+        elif h:
+            ip = h.split(":")[0]
+        if not ip or ip == "localhost":
+            ip = "127.0.0.2" if port == "3389" else "127.0.0.1"
+    return ip, port, f"{ip}:{port}"
+
+
+def rdp_tip(u):
+    """Infobulle affichant l'adresse, le port RDP et l'identifiant du compte enfant."""
+    ip, port, addr = rdp_adresse()
+    return (f'<span class="rdp-tip" tabindex="0" aria-label="Connexion RDP">{ic("monitor", 14)} RDP'
+            f'<span class="tip-pop"><b>Connexion Bureau à distance (RDP)</b>'
+            f'<span>Adresse : <code translate="no">{e(addr)}</code></span>'
+            f'<span>Hôte : <code translate="no">{e(ip)}</code> · Port : <code translate="no">{e(port)}</code></span>'
+            f'<span>Identifiant : <code translate="no">{e(u)}</code></span></span></span>')
+
+
 def c2_total():
     """Temps d'écran de toute la famille aujourd'hui (secondes)."""
     c = db()
@@ -273,7 +298,7 @@ def page_live(q, flash=""):
         actions = (f'<div class="kid-actions">{pause_btn}{sess_btns}{bonus_btn}{logout_btn}'
                    f'<button class="btn sm ghost icon" data-open="more-{u}" title="Compte et mot de passe" style="margin-left:auto">{ic("more", 18)}</button></div>')
         cards.append(f'<section class="card kid"><div class="kid-head">{avatar(u, "lg")}<div><h2>{e(nom(u))}</h2>'
-                     f'<div class="presence">{pres}</div></div></div>{mode_block(u, data, prof, lvl, why, left, c)}{kpis}'
+                     f'<div class="presence">{pres}{rdp_tip(u)}</div></div></div>{mode_block(u, data, prof, lvl, why, left, c)}{kpis}'
                      f'{now_list}{day_strip(data[u])}{actions}{kid_dialogs(u, u in disp, pws.get(u, ""))}</section>')
     c.close()
     sub = f"{online} enfant{'s' if online > 1 else ''} en ligne" if online else "Aucun enfant connecté pour le moment"
@@ -660,7 +685,7 @@ def page_comptes(q, flash=""):
 <div class="presence">{pres}</div></div>
 <div class="row"><button class="btn sm" data-open="edit-{u}">{ic("edit", 16)} Modifier</button>{delete}</div></div>
 <div class="row small"><span class="muted">Identifiant</span> <code translate="no">{e(u)}</code>
-<span class="muted" style="margin-left:10px">Mot de passe</span> <code translate="no">{e(pws.get(u, "?"))}</code></div>
+<span class="muted" style="margin-left:10px">Mot de passe</span> <code translate="no">{e(pws.get(u, "?"))}</code> {rdp_tip(u)}</div>
 <div class="row small"><span class="muted row" style="gap:6px">{ic("palette", 16)} Couleur</span>
 <form method="post" class="color-sw">{hidden(a="couleur", u=u, back=back)}{swatches}</form>
 <form method="post" class="row" style="gap:4px">{hidden(a="couleur", u=u, back=back)}<input type="color" name="v" value="{col_cur}" class="color-pick" onchange="this.form.submit()" title="Autre couleur"></form></div>
@@ -1333,6 +1358,7 @@ class H(BaseHTTPRequestHandler):
             return
         q = parse_qs(urlparse(self.path).query)
         REQ.theme = self.choisir_theme()
+        REQ.host = self.headers.get("Host", "")
         p, flash = q.get("p", ["live"])[0], q.get("msg", [""])[0]
         REQ.kid = self.enfant_courant(q, p)
         if not USERS and not load_accounts() and p != "comptes":
@@ -1406,7 +1432,7 @@ class H(BaseHTTPRequestHandler):
         pass
 
 
-TLS_DIR = f"{HOME}/.maranyse-tls"
+TLS_DIR = f"{DATA_DIR}/.maranyse-tls"
 TLS_CERT = f"{TLS_DIR}/cert.pem"
 TLS_KEY = f"{TLS_DIR}/key.pem"
 
@@ -1417,6 +1443,9 @@ def ensure_tls_cert():
         return True
     os.makedirs(TLS_DIR, mode=0o700, exist_ok=True)
     ips = {"127.0.0.1"}
+    for env_ip in (os.environ.get("MARANYSE_LAN_IP", ""), os.environ.get("MARANYSE_VM_IP", "")):
+        if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", env_ip):
+            ips.add(env_ip)
     try:
         out = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=5).stdout
         for x in out.split():

@@ -15,11 +15,21 @@ ADM=$(cut -d: -f2 "$ICI/build/compte_admin_vm.txt")
 O="-F /dev/null -i $KEY -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$KNOWN -o LogLevel=ERROR"
 
 # Capacités de l'ordinateur hôte (page Puissance : le curseur est un pourcentage de cet ordinateur).
-# Le plafond de la VM (Get-VM) demande les droits administrateur : sinon la valeur déjà connue est gardée.
-powershell.exe -NoProfile -Command '$c=Get-CimInstance Win32_ComputerSystem; $p=(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim();
-  $h=[ordered]@{cpu=$p; threads=[int]$c.NumberOfLogicalProcessors; ram_mo=[int]($c.TotalPhysicalMemory/1MB); disque_libre_go=[int]((Get-PSDrive F).Free/1GB)};
-  try { $m=Get-VM bureau-enfants -ErrorAction Stop; $h.vm_ram_mo=[int]($(if($m.DynamicMemoryEnabled){$m.MemoryMaximum}else{$m.MemoryStartup})/1MB) } catch {}
-  $h | ConvertTo-Json -Compress' | tr -d '\r\n' > /tmp/maranyse_hote.json
+# Fonctionne sous Windows (Git Bash / PowerShell) et sous Linux hôte.
+if command -v powershell.exe >/dev/null 2>&1; then
+  powershell.exe -NoProfile -Command '$c=Get-CimInstance Win32_ComputerSystem; $p=(Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim();
+    $h=[ordered]@{cpu=$p; threads=[int]$c.NumberOfLogicalProcessors; ram_mo=[int]($c.TotalPhysicalMemory/1MB); disque_libre_go=[int]((Get-PSDrive F).Free/1GB)};
+    try { $m=Get-VM bureau-enfants -ErrorAction Stop; $h.vm_ram_mo=[int]($(if($m.DynamicMemoryEnabled){$m.MemoryMaximum}else{$m.MemoryStartup})/1MB) } catch {}
+    $h | ConvertTo-Json -Compress' | tr -d '\r\n' > /tmp/maranyse_hote.json
+else
+  python3 - <<'PY' > /tmp/maranyse_hote.json
+import json, os, shutil
+cpu = next((l.split(":", 1)[1].strip() for l in open("/proc/cpuinfo") if l.startswith("model name")), "")
+mem_kb = next((int(l.split()[1]) for l in open("/proc/meminfo") if l.startswith("MemTotal:")), 4096 * 1024)
+disk_go = shutil.disk_usage("/").free // (1024 ** 3)
+print(json.dumps({"cpu": cpu, "threads": os.cpu_count() or 1, "ram_mo": mem_kb // 1024, "disque_libre_go": disk_go}))
+PY
+fi
 scp $O /tmp/maranyse_hote.json parent@$VM:/tmp/hote_mesure.json
 scp $O "$ICI/config.env" "$ICI/tableau.py" "$ICI/style.py" "$ICI/stats.py" "$ICI/aide.py" "$ICI/logique.py" "$ICI/marque.py" "$ICI/logiciels.py" "$ICI/i18n.py" "$ICI/themes.py" \
   "$RACINE/container/Dockerfile" "$RACINE/container/entrypoint.sh" "$RACINE/container/firefox-net.c" "$RACINE/container/sans-internet.c" "$RACINE/container/sans-internet-ff.c" parent@$VM:/tmp/
@@ -92,4 +102,4 @@ S systemctl restart tableau-parent
 sleep 3
 echo "bureau : $(docker inspect -f '{{.State.Status}}' bureau-enfants) / tableau : $(systemctl is-active tableau-parent)"
 REMOTE
-echo "MaranYSE est a jour : http://$VM:8080"
+echo "MaranYSE est a jour : https://$VM:8080"

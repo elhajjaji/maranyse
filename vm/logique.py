@@ -35,13 +35,17 @@ PORT = int(os.environ.get("MARANYSE_PORT", "8080"))
 TICK = 30
 RETENTION_JOURS = 365            # conservation maximale des statistiques détaillées
 LAN_IPS = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16"
+DATA_DIR = os.environ.get("MARANYSE_DATA_DIR", HOME)
+os.makedirs(DATA_DIR, exist_ok=True)
 CONF = f"{HOME}/.tableau.conf"
-RULES = f"{HOME}/controle.json"
-DB = f"{HOME}/stats.db"
+RULES = f"{DATA_DIR}/controle.json"
+DB = f"{DATA_DIR}/stats.db"
 if os.environ.get("MARANYSE_LOGIN") and os.environ.get("MARANYSE_PASSWORD"):
     LOGIN, PASSWORD = os.environ["MARANYSE_LOGIN"], os.environ["MARANYSE_PASSWORD"]
-else:
+elif os.path.isfile(CONF):
     LOGIN, PASSWORD = open(CONF).read().strip().split(":", 1)
+else:
+    LOGIN, PASSWORD = "parent", os.environ.get("MARANYSE_PASSWORD", "maranyse")
 # Filtre familial CleanBrowsing Family : contenu adulte, logiciels malveillants, mais aussi sites proxy, VPN et anonymiseurs
 # (le contournement le plus courant par le navigateur) ; recherche sécurisée Google et YouTube en mode restreint imposés.
 FAMILY_DNS = ["185.228.168.168", "185.228.169.168"]
@@ -775,8 +779,8 @@ def ressources(c, ids, now):
 # ======================================================================
 # Puissance : part de l'ordinateur hôte (Windows) laissée au bureau des enfants
 # ======================================================================
-PUISSANCE = f"{HOME}/puissance.json"     # position du curseur (page Puissance)
-HOTE = f"{HOME}/hote.json"               # capacités de l'ordinateur hôte, mesurées par installer_controle.sh
+PUISSANCE = f"{DATA_DIR}/puissance.json"     # position du curseur (page Puissance)
+HOTE = f"{DATA_DIR}/hote.json"               # capacités de l'ordinateur hôte, mesurées par installer_controle.sh
 RESERVE_VM_MO = 1024                     # mémoire gardée pour la VM elle-même (tableau de bord, Docker)
 PCT_MIN = 5
 PCT_PLAFOND = 60                         # Windows garde toujours au moins 40 % de l'ordinateur
@@ -860,7 +864,7 @@ def quota_go():
 
 
 # --- Charge en direct (en-tête du tableau) : la VM elle-même et l'ordinateur hôte (envoyée par vm/charge_hote.ps1)
-JETON_HOTE = f"{HOME}/.jeton_charge"
+JETON_HOTE = f"{DATA_DIR}/.jeton_charge"
 _CHARGE = {"vm_prec": None, "vm": None, "hote": None}
 _charge_lock = threading.Lock()
 
@@ -927,6 +931,9 @@ def apply_quota(ids, force=False):
                     subprocess.run(["sudo", "-n", "/usr/sbin/setquota", "-u", str(uid), str(kb), str(kb), "0", "0", "/"],
                                    capture_output=True, text=True, timeout=15)
             r = subprocess.run(["sudo", "-n", "/usr/sbin/repquota", "-un", "/"], capture_output=True, text=True, timeout=15)
+        elif os.path.exists("/.dockerenv"):
+            STATE["quota_supported"] = False
+            return
         else:
             r = None
         if not r or "Report for user quotas" not in r.stdout:
@@ -942,8 +949,12 @@ def apply_quota(ids, force=False):
         if len(f) >= 5 and f[0].lstrip("#") in by_uid and f[2].isdigit():
             use[by_uid[f[0].lstrip("#")]] = int(f[2])                          # Ko occupés
     if "Report for user quotas" not in r.stdout:
-        print("erreur quotas:", (r.stderr or r.stdout).strip()[:300], flush=True)
+        if not STATE.get("quota_warned"):
+            print("quotas disque indisponibles sur cet hôte :", (r.stderr or r.stdout).strip()[:200], flush=True)
+            STATE["quota_warned"] = True
+        STATE["quota_supported"] = False
         return
+    STATE["quota_supported"] = True
     STATE["quota_use"] = {u: use.get(u, 0) for u in ids}
     STATE["quota_lu"] = now
     if regle:
@@ -966,7 +977,9 @@ def apply_puissance():
         if u.returncode:
             print("erreur limites:", u.stderr.strip(), flush=True)
     st = STATE.setdefault("puiss", {})
-    base = f"/sys/fs/cgroup/system.slice/docker-{f[0]}.scope/"
+    base = next((p for p in (f"/sys/fs/cgroup/system.slice/docker-{f[0]}.scope/", f"/sys/fs/cgroup/docker/{f[0]}/") if os.path.isdir(p)), "")
+    if not base:
+        return
     try:
         cs = dict(l.split() for l in open(base + "cpu.stat"))
         ev = dict(l.split() for l in open(base + "memory.events"))
@@ -1104,12 +1117,16 @@ def apply_exec(allowed):
     try:
         pid = subprocess.run(["docker", "inspect", "-f", "{{.State.Pid}}", C], capture_output=True, text=True, timeout=10).stdout.strip()
         if pid.isdigit() and pid != "0":
-            r = subprocess.run(["sudo", "-n", "/usr/bin/nsenter", "-t", pid, "-m", "--", "sh", "-c", cmd],
-                               capture_output=True, timeout=20)
-            if r.returncode != 0:
+            try:
+                r = subprocess.run(["sudo", "-n", "/usr/bin/nsenter", "-t", pid, "-m", "--", "sh", "-c", cmd],
+                                   capture_output=True, timeout=20)
+                rc = r.returncode
+            except OSError:
+                rc = 1
+            if rc != 0:
                 subprocess.run(["docker", "run", "--rm", "--privileged", "--pid=host", "debian:bookworm-slim",
                                 "nsenter", "-t", pid, "-m", "sh", "-c", cmd], capture_output=True, timeout=40)
-    except subprocess.TimeoutExpired:
+    except (subprocess.TimeoutExpired, OSError):
         pass
 
 

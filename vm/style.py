@@ -208,6 +208,10 @@ textarea{resize:vertical;min-height:80px}
 .pill.p{background:var(--primary-soft);color:var(--primary)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block}.dot.on{background:var(--green);box-shadow:0 0 0 3px var(--green-soft)}
 .dot.idle{background:var(--orange)}
+.rdp-tip{position:relative;display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:99px;background:var(--surface2);color:var(--primary);font-size:12px;font-weight:600;cursor:help;border:1px solid var(--border)}
+.rdp-tip .tip-pop{display:none;position:absolute;left:0;top:calc(100% + 6px);z-index:40;min-width:230px;padding:10px 12px;border-radius:12px;background:var(--surface);color:var(--text);border:1px solid var(--border);box-shadow:0 8px 24px rgba(15,23,42,.18);font-weight:400;font-size:12.5px;line-height:1.5;flex-direction:column;gap:4px;white-space:nowrap}
+.rdp-tip:hover .tip-pop,.rdp-tip:focus .tip-pop,.rdp-tip:focus-within .tip-pop{display:flex}
+.rdp-tip .tip-pop code{background:var(--surface2);padding:1px 6px;border-radius:6px;font-size:12.5px;user-select:all}
 /* carte enfant */
 .kid{display:flex;flex-direction:column;gap:16px}
 .kid-head{display:flex;gap:14px;align-items:center}.kid-head h2{font-size:19px;margin:0}

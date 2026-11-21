@@ -1,0 +1,65 @@
+# MaranYSE — Mode 2 : 100 % Docker (hôte Linux) avec IP dédiée sur le réseau local.
+# Copier .env.example vers .env, adapter MARANYSE_LAN_*, puis lancer :
+#   docker compose up -d --build
+
+services:
+  bureau-enfants:
+    build: ./container
+    image: bureau-enfants:latest
+    container_name: bureau-enfants
+    hostname: bureau-enfants
+    restart: unless-stopped
+    init: true
+    shm_size: "2gb"
+    cap_add: [NET_ADMIN]
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: 1
+      net.ipv6.conf.default.disable_ipv6: 1
+    environment:
+      USERS: "${MARANYSE_USERS:-driss paul carole}"
+    networks:
+      lan_enfants:
+        ipv4_address: ${MARANYSE_LAN_IP:-192.168.1.50}
+    volumes:
+      - homes:/home
+      - secrets:/secrets
+
+  maranyse-parents:
+    build:
+      context: .
+      dockerfile: container/Dockerfile.parents
+    image: maranyse-parents:latest
+    container_name: maranyse-parents
+    restart: unless-stopped
+    depends_on:
+      - bureau-enfants
+    # Partage l'IP LAN dédiée du conteneur bureau-enfants (port 3389 pour enfants, 8080 pour parents)
+    network_mode: "service:bureau-enfants"
+    environment:
+      MARANYSE_DATA_DIR: /data
+      MARANYSE_VM_NAME: bureau-enfants
+      MARANYSE_LAN_IP: ${MARANYSE_LAN_IP:-192.168.1.50}
+      MARANYSE_PORT: ${MARANYSE_PORT:-8080}
+      MARANYSE_USERS: "${MARANYSE_USERS:-driss paul carole}"
+      MARANYSE_LOGIN: ${MARANYSE_LOGIN:-parent}
+      MARANYSE_PASSWORD: ${MARANYSE_PASSWORD:-maranyse}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - parents_data:/data
+
+networks:
+  lan_enfants:
+    # ipvlan L2 fonctionne sur Ethernet, Wi-Fi et VM (IP dédiée avec la MAC de l'hôte)
+    driver: ${MARANYSE_NET_DRIVER:-ipvlan}
+    driver_opts:
+      parent: ${MARANYSE_LAN_IFACE:-eth0}
+      ipvlan_mode: l2
+    ipam:
+      config:
+        - subnet: ${MARANYSE_LAN_SUBNET:-192.168.1.0/24}
+          gateway: ${MARANYSE_LAN_GW:-192.168.1.1}
+
+volumes:
+  homes:
+  secrets:
+  parents_data:
