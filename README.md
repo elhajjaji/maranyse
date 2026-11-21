@@ -8,6 +8,38 @@
 
 ---
 
+## Quick Start (Docker)
+
+Deploy MaranYSE in minutes without creating a virtual machine.
+
+### Windows (Docker Desktop)
+
+```powershell
+git clone https://github.com/elhajjaji/maranyse.git
+cd maranyse\deploy\docker
+copy .env.example .env
+# Edit .env to set MARANYSE_LOGIN and MARANYSE_PASSWORD
+docker compose -f docker-compose.windows.yml up -d --build
+```
+
+- **Parents Dashboard**: `https://localhost:8080`
+- **Kids Desktop (RDP)**: `127.0.0.1:3390` *(or check the **RDP** tooltip on each child's card)*
+
+### Linux Host (Dedicated LAN IP via `ipvlan` L2)
+
+```bash
+git clone https://github.com/elhajjaji/maranyse.git
+cd maranyse/deploy/docker
+cp .env.example .env
+# Edit .env: set MARANYSE_LAN_IP (e.g. 192.168.1.50), MARANYSE_LAN_IFACE, MARANYSE_LOGIN, MARANYSE_PASSWORD
+docker compose up -d --build
+```
+
+- **Parents Dashboard**: `https://<MARANYSE_LAN_IP>:8080`
+- **Kids Desktop (RDP)**: `<MARANYSE_LAN_IP>:3389`
+
+---
+
 ## Key Features
 
 - **Per-Child Isolated Sessions**: Dedicated Linux accounts with separate home directories (`noexec` enforced when enabled), per-user `iptables` + `dnsmasq` DNS filtering, and independent screen-time tracking.
