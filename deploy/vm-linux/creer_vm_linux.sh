@@ -1,11 +1,14 @@
 #!/bin/bash
 # MaranYSE — Mode 3 : Crée une VM Debian 12 sous Linux (KVM / libvirt) avec sa propre IP sur la box.
 # Prérequis sur l'hôte Linux : qemu-kvm, libvirt-daemon-system, virtinst, cloud-image-utils (ou xorriso), wget, openssh-client.
-# Usage : bash vm/creer_vm_linux.sh
+# Usage : bash deploy/vm-linux/creer_vm_linux.sh
 set -euo pipefail
 
 ICI=$(cd "$(dirname "$0")" && pwd)
-[ -f "$ICI/config.env" ] && . "$ICI/config.env"
+RACINE=$(cd "$ICI/../.." && pwd)
+VM_COMMON="$RACINE/deploy/vm-common"
+CONF="$VM_COMMON/config.env"; [ -f "$CONF" ] || CONF="$RACINE/vm/config.env"
+[ -f "$CONF" ] && . "$CONF"
 
 VM_NAME=${MARANYSE_VM_NAME:-bureau-enfants}
 BRIDGE=${MARANYSE_BRIDGE:-br0}
@@ -13,8 +16,8 @@ RAM_MB=${MARANYSE_VM_RAM_MB:-8192}
 CPUS=${MARANYSE_VM_CPUS:-4}
 DISK_GB=${MARANYSE_VM_DISK_GB:-80}
 
-BUILD="$ICI/build"
-SEED="$ICI/seed"
+BUILD="$VM_COMMON/build"
+SEED="$VM_COMMON/seed"
 mkdir -p "$BUILD" "$SEED"
 
 for cmd in virt-install virsh qemu-img wget ssh-keygen; do
@@ -116,7 +119,7 @@ done
 if [ -n "$IP" ]; then
   echo "$IP" > "$BUILD/ip_vm.txt"
   echo "VM prête sur $IP !"
-  echo "Mettez MARANYSE_VM_IP=$IP dans vm/config.env puis lancez : bash vm/installer_controle.sh"
+  echo "Mettez MARANYSE_VM_IP=$IP dans deploy/vm-common/config.env puis lancez : bash deploy/vm-common/installer_controle.sh"
 else
   echo "VM démarrée. Vérifiez son IP avec : virsh domifaddr $VM_NAME --source arp"
 fi

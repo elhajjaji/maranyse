@@ -1,15 +1,18 @@
 #!/bin/bash
 # MaranYSE — agrandit le disque de la VM sans l'arrêter (les sessions des enfants continuent).
-# Usage depuis Git Bash :  bash vm/agrandir_disque_vm.sh 250      (taille voulue en Go)
+# Usage depuis Git Bash :  bash deploy/vm-common/agrandir_disque_vm.sh 250      (taille voulue en Go)
 # Windows demande l'autorisation administrateur (Hyper-V). Un disque ne peut pas être réduit ensuite.
 set -e
 GO=${1:?Taille voulue en Go, par exemple : bash agrandir_disque_vm.sh 250}
 ICI=$(cd "$(dirname "$0")" && pwd)
-[ -f "$ICI/config.env" ] && . "$ICI/config.env"
+RACINE=$(cd "$ICI/../.." && pwd)
+CONF="$ICI/config.env"; [ -f "$CONF" ] || CONF="$RACINE/vm/config.env"
+[ -f "$CONF" ] && . "$CONF"
 VM=${MARANYSE_VM_IP:-192.168.1.15}
-KEY="$ICI/build/cle_vm"
-KNOWN="$ICI/build/known_hosts"
-ADM=$(cut -d: -f2 "$ICI/build/compte_admin_vm.txt")
+BUILD="$ICI/build"; [ -d "$BUILD" ] || BUILD="$RACINE/vm/build"
+KEY="$BUILD/cle_vm"
+KNOWN="$BUILD/known_hosts"
+ADM=$(cut -d: -f2 "$BUILD/compte_admin_vm.txt")
 O="-F /dev/null -i $KEY -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$KNOWN -o LogLevel=ERROR"
 TMP=$(cygpath -w "${TMPDIR:-/tmp}")
 PS1="$TMP\\maranyse_disque.ps1"; OUT="$TMP\\maranyse_disque.txt"

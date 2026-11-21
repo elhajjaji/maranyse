@@ -6,9 +6,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY vm/tableau.py vm/style.py vm/stats.py vm/aide.py vm/logique.py vm/marque.py vm/logiciels.py vm/themes.py vm/i18n.py ./
-COPY vm/i18n/ ./i18n/
-COPY container/logo_web/ ./logo_web/
+COPY tableau.py style.py stats.py aide.py logique.py marque.py logiciels.py themes.py i18n.py ./
+COPY i18n/ ./i18n/
+COPY assets/ ./logo_web/
 
 ENV MARANYSE_DATA_DIR=/data \
     PYTHONUNBUFFERED=1

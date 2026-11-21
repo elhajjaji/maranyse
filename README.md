@@ -1,57 +1,66 @@
-# MaranYSE — One VM, Many Accounts
+# MaranYSE — contrôle parental et bureau multi-sessions pour les enfants
 
-![MaranYSE](container/logo_web/banniere.jpeg)
+![MaranYSE](app/assets/banniere.jpeg)
 
-Un ordinateur pour toute la famille, sous l'œil bienveillant des parents.
-MaranYSE est un **bureau Linux multi-sessions pour les enfants**, avec un **espace parents** web (HTTPS) pour régler, suivre et protéger.
+MaranYSE fournit un bureau Linux complet (XFCE, Firefox, LibreOffice, GCompris, Tux Paint, Thonny) accessible en Bureau à distance (RDP), piloté par un tableau de bord web HTTPS réservé aux parents (plages horaires, filtrage web/logiciels, quotas, suivi d'activité, gestion des comptes).
 
-Chaque mode ci-dessous attribue au bureau des enfants sa **propre adresse IP sur le réseau local** (distincte de la machine hôte), permettant aux enfants de se connecter avec le **Bureau à distance** standard (`:3389`) et aux parents d'ouvrir l'espace parents (`https://<ip-dediee>:8080`).
-
-## Fonctions
-
-| | |
-|---|---|
-| Planning | Grille 15 min ou réglage **à la minute (`HH:MM`)** : vert (accès complet), orange (règles), rouge (pas d'accès), temps d'écran max/jour, modèle Tout rouge, « Appliquer à tous » |
-| Règles | Internet libre / filtré (DNS familial) / coupé ; sites et applications bloqués ou limités (dès 1 min/jour) ; arrêt automatique des apps et onglets/vidéos épuisés ; règles communes + exceptions |
-| Contournements | Internet réservé à Firefox, pas de VPN, proxy, DoH, IPv6 ni programme téléchargé ; accès au LAN et à `:8080` bloqué pour les enfants ; outils (Python, VS Code) jamais bloqués |
-| Pause et messages | Écran figé à distance (individuel ou **Pause tous** / **Message à tous**), fin de session propre |
-| Statistiques | Temps par enfant, par application, **navigation web Firefox par site** (Simple / Plus de détail), heure par heure ; ressources (processeur, mémoire, internet, disque) |
-| Logiciels | Catalogue de ~140 logiciels éducatifs, bureautiques, de création, de programmation et de jeux, installés d'un clic |
-| Puissance | Part de l'ordinateur hôte laissée aux enfants (curseur), quota disque par enfant, charge de la VM et du PC |
-| Ergonomie & Langues | Couleur personnalisable par enfant (bande à droite + relief), sélection persistante entre menus, alerte si non enregistré, HTTPS intégré, 10 langues et plusieurs thèmes |
+---
 
 ## 3 modes de déploiement
 
 ### Mode 1 — VM Windows (Hyper-V)
-1. Copier `vm/config.env.example` vers `vm/config.env` et adapter si besoin.
-2. Créer la VM (PowerShell administrateur) : `powershell -ExecutionPolicy Bypass -File vm\creer_vm.ps1`
-3. Déployer MaranYSE (Git Bash) : `bash vm/installer_controle.sh`
+1. Copier `deploy/vm-common/config.env.example` vers `deploy/vm-common/config.env` et adapter si besoin.
+2. Créer la VM Hyper-V (PowerShell administrateur) : `deploy/vm-windows/creer_vm.ps1`.
+3. Déployer MaranYSE (Git Bash) : `bash deploy/vm-common/installer_controle.sh`.
+- Accès parents : `https://<IP_VM>:8080`
+- Accès enfants (RDP) : `<IP_VM>:3389`
 
-### Mode 2 — Docker (hôte Linux, IP LAN dédiée via `macvlan` / `ipvlan`)
-1. Copier `.env.example` vers `.env` et renseigner `MARANYSE_LAN_IP` (ex. `192.168.1.50`), `MARANYSE_LAN_IFACE` (`eth0` en `macvlan`, ou `wlan0` avec `MARANYSE_NET_DRIVER=ipvlan`), `MARANYSE_LOGIN` et `MARANYSE_PASSWORD`.
-2. Lancer les deux conteneurs (`bureau-enfants` + `maranyse-parents`) :
-   ```bash
-   docker compose up -d --build
-   ```
-3. Ouvrir `https://<MARANYSE_LAN_IP>:8080` (parents) et `<MARANYSE_LAN_IP>` en Bureau à distance (enfants).
+### Mode 2 — 100 % Docker
+#### Sous hôte Linux (IP LAN dédiée via `ipvlan` L2)
+```bash
+cd deploy/docker
+cp .env.example .env   # renseigner MARANYSE_LAN_IP (ex. 192.168.1.50), MARANYSE_LAN_IFACE, MARANYSE_LOGIN, MARANYSE_PASSWORD
+docker compose up -d --build
+```
+- Accès parents : `https://<MARANYSE_LAN_IP>:8080`
+- Accès enfants (RDP) : `<MARANYSE_LAN_IP>:3389`
 
-### Mode 3 — VM Linux (KVM / libvirt, IP LAN dédiée via pont réseau)
-1. Copier `vm/config.env.example` vers `vm/config.env` (et définir `MARANYSE_BRIDGE=br0` si votre pont a un autre nom).
-2. Créer la VM Debian 12 : `bash vm/creer_vm_linux.sh`
-3. Renseigner `MARANYSE_VM_IP` dans `vm/config.env` puis déployer : `bash vm/installer_controle.sh`
+#### Sous Docker Desktop Windows / macOS (`bridge` + redirection de ports)
+```powershell
+cd deploy/docker
+copy .env.example .env
+docker compose -f docker-compose.windows.yml up -d --build
+```
+- Accès parents : `https://localhost:8080`
+- Accès enfants (RDP) : `127.0.0.1:3390` (port `3390` par défaut pour éviter le conflit avec le service RDP de Windows sur `3389`)
 
-## Organisation du dépôt
+### Mode 3 — VM Linux (KVM / libvirt)
+1. Copier `deploy/vm-common/config.env.example` vers `deploy/vm-common/config.env` (et définir `MARANYSE_BRIDGE=br0`).
+2. Créer la VM Debian 12 en bridge sur votre réseau local : `bash deploy/vm-linux/creer_vm_linux.sh`.
+3. Renseigner `MARANYSE_VM_IP` dans `deploy/vm-common/config.env` puis déployer : `bash deploy/vm-common/installer_controle.sh`.
+- Accès parents : `https://<IP_VM>:8080`
+- Accès enfants (RDP) : `<IP_VM>:3389`
 
-| Dossier | Contenu |
+---
+
+## Organisation du projet
+
+| Dossier | Rôle |
 |---|---|
-| `container/` | Image Docker du bureau des enfants (`Dockerfile`, `entrypoint.sh`, lanceurs C qui réservent internet à Firefox, `bureau/`, `logo_web/`) et `Dockerfile.parents` (mode Docker) |
-| `vm/` | Espace parents (`tableau.py`, `style.py`, `stats.py`, `aide.py`, `logique.py`, `logiciels.py`, `i18n.py`, `themes.py`) et scripts VM Windows / VM Linux |
-| `docker-compose.yml` | Orchestration du Mode 2 (100 % Docker avec IP LAN dédiée) |
-| `tests/` | `scenario.py` : scénarios graphiques de bout en bout (vraies sessions Bureau à distance, captures, rapport HTML) |
+| `app/` | Code applicatif Espace Parents (`tableau.py`, `logique.py`, `style.py`, `i18n/`, `assets/`, `Dockerfile`) |
+| `bureau/` | OS de base du bureau enfants (`Dockerfile`, `entrypoint.sh`, `logiciels.sh`, `firefox-net.c`, `sans-internet*.c`, `xfce/`) |
+| `deploy/docker/` | Déploiement 100 % Docker (`docker-compose.yml`, `docker-compose.windows.yml`, `.env.example`) |
+| `deploy/vm-windows/` | Scripts Hyper-V pour hôte Windows (`creer_vm.ps1`, `charge_hote.ps1`, diagnostics) |
+| `deploy/vm-linux/` | Script KVM/libvirt pour hôte Linux (`creer_vm_linux.sh`) |
+| `deploy/vm-common/` | Scripts de provisionnement partagés entre VM Windows et VM Linux (`installer_controle.sh`, `installer_tableau.sh`, `config.env.example`) |
+| `tests/` | Scénarios et vérifications automatisés |
 
-Les secrets (`vm/build/`, `vm/seed/`, `vm/config.env`, `.env`) ne sont jamais publiés.
+## Accès aux interfaces
 
-## Tests
+- **Espace parents (HTTPS)** : `https://<IP_OU_LOCALHOST>:8080` (accepter le certificat auto-signé au premier accès, ou télécharger le certificat depuis la page **Aide**).
+- **Bureau enfants (RDP / Windows App)** : utiliser l'adresse et le port affichés dans l'infobulle **RDP** de chaque enfant (sur la page **Accueil** ou **Comptes**), avec son identifiant et son mot de passe.
 
-Dans la VM : `cd ~/tests && python3 scenario.py` (tous les groupes) ou `python3 scenario.py A B C` (quelques groupes).
-Les comptes de test sont temporaires et supprimés à la fin ; les vrais comptes ne sont jamais touchés.
+## Sécurité et fichiers locaux
+
+Les secrets (`deploy/vm-common/build/`, `deploy/vm-common/seed/`, `deploy/vm-common/config.env`, `.env`, `deploy/docker/.env`) ne sont jamais suivis par Git.
+Sur Docker, les identifiants de l'espace parents proviennent de `deploy/docker/.env` (`MARANYSE_LOGIN` / `MARANYSE_PASSWORD`).

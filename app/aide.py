@@ -98,19 +98,21 @@ bloquer « Terminal » ne le bloque pas.</li>
 (bureau recréé à la main), ils sont réinstallés automatiquement dans les 10 minutes.</li>
 </ul>"""
 
-AIDE_DEPLOIEMENT = r"""<p>Dossier du projet sur le PC Windows (par exemple <code>F:\vm_enfants</code>). L'adresse IP de la VM sur votre réseau local
-(<code>{VM}</code> actuellement) et les comptes initiaux se configurent dans <code>vm/config.env</code> (d'après <code>vm/config.env.example</code>).</p>
-<div class="tw"><table class="t"><tr><th>Étape</th><th>Comment</th></tr>
-<tr><td><b>1. Créer la machine virtuelle</b></td><td>PowerShell <b>en administrateur</b> :<br><code>powershell -ExecutionPolicy Bypass -File vm\creer_vm.ps1</code><br>
-Active Hyper-V si besoin, crée la VM Debian sur le Wi-Fi (adresse propre attribuée par votre box, notée dans <code>vm/build/ip_vm.txt</code>), démarrage automatique avec Windows.</td></tr>
-<tr><td><b>2. Installer ou mettre à jour MaranYSE</b></td><td>Git Bash :<br><code>bash vm/installer_controle.sh</code><br>
-Reconstruit le bureau des enfants (<code>container/</code>), met à jour l'espace parents (<code>vm/tableau.py</code>, <code>logique.py</code>, <code>stats.py</code>, <code>style.py</code>, <code>aide.py</code>).
+AIDE_DEPLOIEMENT = r"""<p>L'adresse de la VM ou du conteneur (<code>{VM}</code> actuellement) et les comptes initiaux se configurent dans <code>deploy/vm-common/config.env</code> (mode VM) ou <code>deploy/docker/.env</code> (mode Docker).</p>
+<div class="tw"><table class="t"><tr><th>Mode / Étape</th><th>Comment</th></tr>
+<tr><td><b>1. VM Windows (Hyper-V)</b></td><td>PowerShell <b>en administrateur</b> :<br><code>powershell -ExecutionPolicy Bypass -File deploy\vm-windows\creer_vm.ps1</code><br>
+Active Hyper-V si besoin, crée la VM Debian sur le réseau local, démarrage automatique avec Windows.</td></tr>
+<tr><td><b>2. VM Linux (KVM)</b></td><td>Terminal Linux :<br><code>bash deploy/vm-linux/creer_vm_linux.sh</code><br>
+Crée la VM Debian 12 en bridge sur votre réseau local (<code>MARANYSE_BRIDGE=br0</code>).</td></tr>
+<tr><td><b>3. Installer ou mettre à jour (VM)</b></td><td>Git Bash / Terminal :<br><code>bash deploy/vm-common/installer_controle.sh</code><br>
+Reconstruit le bureau des enfants (<code>bureau/</code>), met à jour l'espace parents (<code>app/</code>).
 <b>Ferme les sessions ouvertes</b> : prévenez les enfants (bouton Message) avant.</td></tr>
-<tr><td><b>3. Vérifier</b></td><td>Scénario de test graphique (vraies sessions, captures) : <code>tests/scenario.py</code>, lancé dans la VM.
+<tr><td><b>4. Mode 100 % Docker</b></td><td>Linux (IP LAN dédiée <code>ipvlan</code>) : <code>cd deploy/docker && docker compose up -d --build</code><br>
+Docker Desktop Windows : <code>cd deploy/docker && docker compose -f docker-compose.windows.yml up -d --build</code></td></tr>
+<tr><td><b>5. Vérifier</b></td><td>Scénario de test graphique (vraies sessions, captures) : <code>tests/scenario.py</code>.
 Comptes de test temporaires, rapport HTML avec captures ; vos réglages sont restaurés à la fin.</td></tr>
 </table></div>
-<p class="muted small">Dans la VM : comptes et mots de passe dans <code>/srv/bureau/secrets</code>, dossiers des enfants dans <code>/srv/bureau/home</code>,
-règles dans <code>~/controle.json</code>, statistiques dans <code>~/stats.db</code> (utilisateur <code>parent</code>).</p>"""
+<p class="muted small">Sur chaque carte enfant (Accueil et Comptes), l'infobulle <b>RDP</b> indique l'adresse et le port exacts pour la Connexion Bureau à distance.</p>"""
 
 AIDE_MAINTENANCE = r"""<ul class="help-list">
 <li><b>Redémarrer le bureau</b> (bas du menu) : ferme toutes les sessions et redémarre le bureau des enfants. Utile si quelque chose semble bloqué.</li>

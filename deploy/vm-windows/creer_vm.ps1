@@ -1,6 +1,6 @@
 # Crée la VM Hyper-V "bureau-enfants" avec sa propre IP sur la Livebox.
 # A lancer dans un PowerShell ouvert en tant qu'administrateur :
-#   powershell -ExecutionPolicy Bypass -File F:\vm_enfants\vm\creer_vm.ps1
+#   powershell -ExecutionPolicy Bypass -File deploy\vm-windows\creer_vm.ps1
 $ErrorActionPreference = 'Stop'
 $Dir     = $PSScriptRoot
 $VmName  = 'bureau-enfants'

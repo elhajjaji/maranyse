@@ -4,7 +4,7 @@
 
 services:
   bureau-enfants:
-    build: ./container
+    build: ../../bureau
     image: bureau-enfants:latest
     container_name: bureau-enfants
     hostname: bureau-enfants
@@ -26,8 +26,8 @@ services:
 
   maranyse-parents:
     build:
-      context: .
-      dockerfile: container/Dockerfile.parents
+      context: ../../app
+      dockerfile: Dockerfile
     image: maranyse-parents:latest
     container_name: maranyse-parents
     restart: unless-stopped

@@ -83,7 +83,7 @@ RUN sh /opt/maranyse/logiciels.sh
 
 # Bureau « façon Windows » : barre des tâches en bas avec menu Démarrer, thème clair, icônes, fond MaranYSE.
 # Réglages par défaut dans /etc/xdg ; maranyse-session les (ré)applique à chaque enfant (voir ce fichier).
-COPY bureau/ /opt/maranyse/bureau/
+COPY xfce/ /opt/maranyse/bureau/
 RUN cd /opt/maranyse/bureau && sed -i 's/\r$//' maranyse-session *.xml *.svg *.rc theme/* icones/* \
     && install -m 755 maranyse-session /usr/local/bin/maranyse-session \
     && install -D -m 644 xfce4-panel.xml /etc/xdg/xfce4/panel/default.xml \

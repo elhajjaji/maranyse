@@ -2,16 +2,20 @@
 # MaranYSE — met à jour le contrôle parental dans la VM :
 # reconstruit l'image du bureau, recrée le conteneur (avec NET_ADMIN pour le pare-feu par enfant)
 # et remplace le tableau de bord. Les sessions ouvertes sont fermées.
-# Lancer depuis Git Bash :  bash vm/installer_controle.sh
+# Lancer depuis Git Bash :  bash deploy/vm-common/installer_controle.sh
 set -e
 ICI=$(cd "$(dirname "$0")" && pwd)
-RACINE=$(cd "$ICI/.." && pwd)
-[ -f "$ICI/config.env" ] && . "$ICI/config.env"
+RACINE=$(cd "$ICI/../.." && pwd)
+APP="$RACINE/app"
+BUR="$RACINE/bureau"
+CONF="$ICI/config.env"; [ -f "$CONF" ] || CONF="$RACINE/vm/config.env"
+[ -f "$CONF" ] && . "$CONF"
 VM=${MARANYSE_VM_IP:-192.168.1.15}
 USERS_INIT=${MARANYSE_USERS:-driss paul carole}
-KEY="$ICI/build/cle_vm"
-KNOWN="$ICI/build/known_hosts"
-ADM=$(cut -d: -f2 "$ICI/build/compte_admin_vm.txt")
+BUILD="$ICI/build"; [ -d "$BUILD" ] || BUILD="$RACINE/vm/build"
+KEY="$BUILD/cle_vm"
+KNOWN="$BUILD/known_hosts"
+ADM=$(cut -d: -f2 "$BUILD/compte_admin_vm.txt")
 O="-F /dev/null -i $KEY -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$KNOWN -o LogLevel=ERROR"
 
 # Capacités de l'ordinateur hôte (page Puissance : le curseur est un pourcentage de cet ordinateur).
@@ -31,15 +35,15 @@ print(json.dumps({"cpu": cpu, "threads": os.cpu_count() or 1, "ram_mo": mem_kb /
 PY
 fi
 scp $O /tmp/maranyse_hote.json parent@$VM:/tmp/hote_mesure.json
-scp $O "$ICI/config.env" "$ICI/tableau.py" "$ICI/style.py" "$ICI/stats.py" "$ICI/aide.py" "$ICI/logique.py" "$ICI/marque.py" "$ICI/logiciels.py" "$ICI/i18n.py" "$ICI/themes.py" \
-  "$RACINE/container/Dockerfile" "$RACINE/container/entrypoint.sh" "$RACINE/container/firefox-net.c" "$RACINE/container/sans-internet.c" "$RACINE/container/sans-internet-ff.c" parent@$VM:/tmp/
-ssh $O parent@$VM 'rm -rf /tmp/bureau /tmp/i18n /tmp/logo_web && mkdir -p /tmp/logo_web/web'
-scp $O -r "$ICI/i18n" parent@$VM:/tmp/
-scp $O -r "$RACINE/container/bureau" parent@$VM:/tmp/
-scp $O "$RACINE/container/logo_web/logo4_440.png" parent@$VM:/tmp/logo_web/
-scp $O "$RACINE/container/logo_web/web/e320.png" "$RACINE/container/logo_web/web/e128.png" "$RACINE/container/logo_web/web/logo420.jpg" \
-  "$RACINE/container/logo_web/web/logo200.jpg" "$RACINE/container/logo_web/web/ban440.jpg" "$RACINE/container/logo_web/web/slogan760.jpg" \
-  "$RACINE/container/logo_web/web/ban1200.jpg" "$RACINE/container/logo_web/web/favjpeg.png" parent@$VM:/tmp/logo_web/web/
+scp $O "$CONF" "$APP/tableau.py" "$APP/style.py" "$APP/stats.py" "$APP/aide.py" "$APP/logique.py" "$APP/marque.py" "$APP/logiciels.py" "$APP/i18n.py" "$APP/themes.py" \
+  "$BUR/Dockerfile" "$BUR/entrypoint.sh" "$BUR/firefox-net.c" "$BUR/sans-internet.c" "$BUR/sans-internet-ff.c" parent@$VM:/tmp/
+ssh $O parent@$VM 'rm -rf /tmp/xfce /tmp/i18n /tmp/logo_web && mkdir -p /tmp/logo_web/web'
+scp $O -r "$APP/i18n" parent@$VM:/tmp/
+scp $O -r "$BUR/xfce" parent@$VM:/tmp/
+scp $O "$APP/assets/logo4_440.png" parent@$VM:/tmp/logo_web/
+scp $O "$APP/assets/web/e320.png" "$APP/assets/web/e128.png" "$APP/assets/web/logo420.jpg" \
+  "$APP/assets/web/logo200.jpg" "$APP/assets/web/ban440.jpg" "$APP/assets/web/slogan760.jpg" \
+  "$APP/assets/web/ban1200.jpg" "$APP/assets/web/favjpeg.png" parent@$VM:/tmp/logo_web/web/
 
 # Le mot de passe sudo est transmis via un fichier 0600 éphémère sur stdin (jamais exposé dans ps aux)
 printf '%s\n' "$ADM" | ssh $O parent@$VM 'umask 077 && cat > /tmp/.maranyse_adm'
@@ -49,7 +53,7 @@ ADM=$(cat /tmp/.maranyse_adm); rm -f /tmp/.maranyse_adm
 S() { printf '%s\n' "$ADM" | sudo -S -p '' "$@"; }
 S install -m 644 /tmp/Dockerfile /tmp/entrypoint.sh /tmp/firefox-net.c /tmp/sans-internet.c /tmp/sans-internet-ff.c /srv/bureau/build/
 # bureau « façon Windows » (thème, barre des tâches, menu Démarrer, fond d'écran)
-S rm -rf /srv/bureau/build/bureau && S cp -r /tmp/bureau /srv/bureau/build/bureau
+S rm -rf /srv/bureau/build/bureau /srv/bureau/build/xfce && S cp -r /tmp/xfce /srv/bureau/build/xfce
 # logiciels installés depuis l'espace parents : intégrés à l'image (sinon réinstallés après coup)
 (cd /tmp && python3 logiciels.py script) > /tmp/logiciels.sh
 S install -m 644 /tmp/logiciels.sh /srv/bureau/build/

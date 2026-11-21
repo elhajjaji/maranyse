@@ -1,6 +1,6 @@
 # MaranYSE - installe l'envoi de la charge de ce PC au tableau de bord (indicateur « PC » de l'en-tete).
 # Tache planifiee de l'utilisateur courant, lancee a l'ouverture de session, sans fenetre. Pas besoin d'etre administrateur.
-# Usage : powershell -ExecutionPolicy Bypass -File F:\vm_enfants\vm\installer_charge_hote.ps1
+# Usage : powershell -ExecutionPolicy Bypass -File deploy\vm-windows\installer_charge_hote.ps1
 # Desinstaller : Unregister-ScheduledTask -TaskName 'MaranYSE charge' -Confirm:$false
 $script = Join-Path $PSScriptRoot 'charge_hote.ps1'
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`""

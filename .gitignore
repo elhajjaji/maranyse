@@ -1,9 +1,13 @@
 # --- Jamais publiés : secrets et données de la VM ---
-# clé SSH, mots de passe, jeton, sauvegardes (vm/build) ; configuration d'installation avec mot de passe (vm/seed)
+# clé SSH, mots de passe, jeton, sauvegardes ; configuration d'installation avec mot de passe
+deploy/vm-common/build/
+deploy/vm-common/seed/
+deploy/vm-common/config.env
 vm/build/
 vm/seed/
 vm/config.env
 .env
+deploy/docker/.env
 *.vhdx
 *.vhd
 *.iso
@@ -16,7 +20,7 @@ tests/rapport*/
 tests/apercu*/
 
 # --- Fichiers de travail des traductions (phrases collectées sur la vraie installation) ---
-vm/i18n/_*
+app/i18n/_*
 
 # --- Divers ---
 __pycache__/

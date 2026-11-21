@@ -1,21 +1,25 @@
 #!/bin/bash
 # Installe le tableau de bord parent dans la VM (http://<IP>:8080)
 # + clé SSH du PC Windows + outils wmctrl/zenity dans le bureau des enfants.
-# Lancer depuis Git Bash :  bash vm/installer_tableau.sh
+# Lancer depuis Git Bash :  bash deploy/vm-common/installer_tableau.sh
 set -e
 export MSYS_NO_PATHCONV=1
 ICI=$(cd "$(dirname "$0")" && pwd)
-RACINE=$(cd "$ICI/.." && pwd)
-[ -f "$ICI/config.env" ] && . "$ICI/config.env"
+RACINE=$(cd "$ICI/../.." && pwd)
+CONF="$ICI/config.env"; [ -f "$CONF" ] || CONF="$RACINE/vm/config.env"
+[ -f "$CONF" ] && . "$CONF"
 VM=${MARANYSE_VM_IP:-192.168.1.15}
-ADM=$(cut -d: -f2 "$ICI/build/compte_admin_vm.txt")
+BUILD="$ICI/build"; [ -d "$BUILD" ] || BUILD="$RACINE/vm/build"
+ADM=$(cut -d: -f2 "$BUILD/compte_admin_vm.txt")
 
 docker run --rm -i -e ADM="$ADM" -e VM="$VM" -v "$RACINE":/w debian:bookworm-slim bash <<'EOF'
 set -e
 apt-get update -qq >/dev/null && apt-get install -y -qq sshpass openssh-client >/dev/null 2>&1
 export SSHPASS="$ADM"
-O="-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/w/vm/build/known_hosts -o LogLevel=ERROR"
-sshpass -e scp $O /w/vm/config.env /w/vm/tableau.py /w/vm/style.py /w/vm/stats.py /w/vm/aide.py /w/vm/logique.py /w/vm/marque.py /w/vm/logiciels.py /w/vm/i18n.py /w/vm/themes.py /w/container/Dockerfile /w/vm/build/cle_vm.pub parent@$VM:/tmp/
+BUILD_W=/w/deploy/vm-common/build; [ -d "$BUILD_W" ] || BUILD_W=/w/vm/build
+CONF_W=/w/deploy/vm-common/config.env; [ -f "$CONF_W" ] || CONF_W=/w/vm/config.env
+O="-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$BUILD_W/known_hosts -o LogLevel=ERROR"
+sshpass -e scp $O "$CONF_W" /w/app/tableau.py /w/app/style.py /w/app/stats.py /w/app/aide.py /w/app/logique.py /w/app/marque.py /w/app/logiciels.py /w/app/i18n.py /w/app/themes.py /w/bureau/Dockerfile "$BUILD_W/cle_vm.pub" parent@$VM:/tmp/
 printf '%s\n' "$ADM" | sshpass -e ssh $O parent@$VM 'umask 077 && cat > /tmp/.maranyse_adm'
 sshpass -e ssh $O parent@$VM "bash -s" <<'REMOTE'
 set -e
